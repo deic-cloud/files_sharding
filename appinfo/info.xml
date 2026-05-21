@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<info xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="https://apps.nextcloud.com/schema/apps/info.xsd">
+	<id>files_sharding</id>
+	<name>Files Sharding</name>
+	<summary>Distribute users across a cluster of Nextcloud silos</summary>
+	<description>Manages a master + silo architecture: the master authenticates users and redirects them to their home silo. Each silo runs a full Nextcloud installation and can operate independently. Cross-silo sharing uses Nextcloud federation with stable user@master identities.</description>
+	<version>1.0.0</version>
+	<licence>agpl</licence>
+	<author mail="fror@deic.dk">DeIC</author>
+	<namespace>FilesSharding</namespace>
+	<category>files</category>
+	<dependencies>
+		<nextcloud min-version="28" max-version="34"/>
+		<php min-version="8.2"/>
+		<app>dav</app>
+	</dependencies>
+	<commands>
+		<command>OCA\FilesSharding\Command\AddServer</command>
+		<command>OCA\FilesSharding\Command\DeleteServer</command>
+		<command>OCA\FilesSharding\Command\ListServers</command>
+		<command>OCA\FilesSharding\Command\ListUsers</command>
+		<command>OCA\FilesSharding\Command\AssignUser</command>
+		<command>OCA\FilesSharding\Command\AutoAssignUser</command>
+	</commands>
+	<background-jobs>
+		<job>OCA\FilesSharding\Job\ReportFreeSpaceJob</job>
+		<job>OCA\FilesSharding\Job\SyncSiloTrustJob</job>
+	</background-jobs>
+	<collaboration>
+		<plugins>
+			<plugin type="collaborator-search" share-type="SHARE_TYPE_REMOTE">OCA\FilesSharding\Collaboration\MasterUserSearch</plugin>
+		</plugins>
+	</collaboration>
+	<settings>
+		<admin>OCA\FilesSharding\Settings\AdminSettings</admin>
+		<personal>OCA\FilesSharding\Settings\PersonalSettings</personal>
+	</settings>
+	<remote>
+		<sharingin>appinfo/remote.php</sharingin>
+		<sharingout>appinfo/remote.php</sharingout>
+	</remote>
+</info>

@@ -1,0 +1,65 @@
+<?php
+
+declare(strict_types=1);
+
+namespace OCA\FilesSharding\AppInfo;
+
+use OCA\DAV\Events\SabrePluginAddEvent;
+use OCA\FederatedFileSharing\Events\FederatedShareAddedEvent;
+use OCA\FilesSharding\Auth\X509Backend;
+use OCA\FilesSharding\Listener\CspListener;
+use OCA\FilesSharding\Listener\PostLoginListener;
+use OCA\FilesSharding\Listener\PostLogoutListener;
+use OCA\FilesSharding\Listener\ProxyShareAcceptanceListener;
+use OCA\FilesSharding\Listener\SabrePluginListener;
+use OCA\FilesSharding\Listener\SudoScriptListener;
+use OCA\FilesSharding\Listener\SyncExternalSharesListener;
+use OCA\FilesSharding\Listener\UserChangedListener;
+use OCA\FilesSharding\Listener\UserDeletedListener;
+use OCA\FilesSharding\Middleware\OcmShareReceivedMiddleware;
+use OCA\FilesSharding\Middleware\RedirectMiddleware;
+use OCA\FilesSharding\Middleware\SudoPasswordMiddleware;
+use OCP\AppFramework\App;
+use OCP\AppFramework\Bootstrap\IBootContext;
+use OCP\AppFramework\Bootstrap\IBootstrap;
+use OCP\AppFramework\Bootstrap\IRegistrationContext;
+use OCP\AppFramework\Http\Events\BeforeLoginTemplateRenderedEvent;
+use OCP\AppFramework\Http\Events\BeforeTemplateRenderedEvent;
+use OCP\IUserManager;
+use OCP\Security\CSP\AddContentSecurityPolicyEvent;
+use OCP\User\Events\UserChangedEvent;
+use OCP\User\Events\UserDeletedEvent;
+use OCP\User\Events\UserLoggedInEvent;
+use OCP\User\Events\UserLoggedInWithCookieEvent;
+use OCP\User\Events\UserLoggedOutEvent;
+
+class Application extends App implements IBootstrap {
+	public const APP_ID = 'files_sharding';
+
+	public function __construct(array $urlParams = []) {
+		parent::__construct(self::APP_ID, $urlParams);
+	}
+
+	public function register(IRegistrationContext $context): void {
+		$context->registerEventListener(AddContentSecurityPolicyEvent::class, CspListener::class);
+		$context->registerEventListener(UserLoggedInEvent::class, PostLoginListener::class);
+		$context->registerEventListener(UserLoggedInWithCookieEvent::class, PostLoginListener::class);
+		$context->registerEventListener(UserLoggedInEvent::class, SyncExternalSharesListener::class);
+		$context->registerEventListener(UserLoggedInWithCookieEvent::class, SyncExternalSharesListener::class);
+		$context->registerEventListener(UserLoggedOutEvent::class, PostLogoutListener::class);
+		$context->registerEventListener(UserDeletedEvent::class, UserDeletedListener::class);
+		$context->registerEventListener(UserChangedEvent::class, UserChangedListener::class);
+		$context->registerEventListener(SabrePluginAddEvent::class, SabrePluginListener::class);
+		$context->registerEventListener(FederatedShareAddedEvent::class, ProxyShareAcceptanceListener::class);
+		$context->registerMiddleware(RedirectMiddleware::class, true);
+		$context->registerMiddleware(OcmShareReceivedMiddleware::class, true);
+		$context->registerMiddleware(SudoPasswordMiddleware::class, true);
+		$context->registerEventListener(BeforeTemplateRenderedEvent::class, SudoScriptListener::class);
+		$context->registerEventListener(BeforeLoginTemplateRenderedEvent::class, SudoScriptListener::class);
+	}
+
+	public function boot(IBootContext $context): void {
+		$context->getServerContainer()->get(IUserManager::class)
+			->registerBackend($context->getServerContainer()->get(X509Backend::class));
+	}
+}

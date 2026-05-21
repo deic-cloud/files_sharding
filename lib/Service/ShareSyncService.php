@@ -1,0 +1,147 @@
+<?php
+
+declare(strict_types=1);
+
+namespace OCA\FilesSharding\Service;
+
+use OCP\DB\QueryBuilder\IQueryBuilder;
+use OCP\EventDispatcher\IEventDispatcher;
+use OCP\Files\Events\InvalidateMountCacheEvent;
+use OCP\IDBConnection;
+use OCP\IURLGenerator;
+use OCP\IUserManager;
+use OCP\Notification\IManager as INotificationManager;
+use OCP\Share\IShare;
+use OCP\Snowflake\ISnowflakeGenerator;
+use Psr\Log\LoggerInterface;
+
+/**
+ * Fetches pending federated shares from the master and mirrors them into the
+ * local oc_share_external table, creating a notification bell entry for each
+ * new share so the user can accept without logging out.
+ *
+ * Used by SyncExternalSharesListener (at login) and by
+ * InternalController::syncShares (push-triggered by the master).
+ */
+class ShareSyncService {
+	public function __construct(
+		private ShardingService      $shardingService,
+		private InterServerClient    $client,
+		private IDBConnection        $db,
+		private ISnowflakeGenerator  $snowflake,
+		private INotificationManager $notificationManager,
+		private IURLGenerator        $urlGenerator,
+		private IUserManager         $userManager,
+		private IEventDispatcher     $eventDispatcher,
+		private LoggerInterface      $logger,
+	) {
+	}
+
+	/**
+	 * Sync pending shares for $userId from master to local silo DB.
+	 * Returns the number of newly inserted shares.
+	 */
+	public function syncForUser(string $userId): int {
+		$masterUrl = $this->shardingService->masterInternalUrl();
+		if ($masterUrl === '') {
+			return 0;
+		}
+
+		$data = $this->client->getDirect($masterUrl, 'internal/users/' . rawurlencode($userId) . '/external-shares');
+		if (!is_array($data) || !isset($data['shares'])) {
+			$this->logger->warning("files_sharding: ShareSyncService: failed to fetch shares for {$userId} from master");
+			return 0;
+		}
+
+		if (empty($data['shares'])) {
+			return 0;
+		}
+
+		$qb = $this->db->getQueryBuilder();
+		$qb->select('remote', 'remote_id')
+		   ->from('share_external')
+		   ->where($qb->expr()->eq('user', $qb->createNamedParameter($userId)));
+		$cursor = $qb->executeQuery();
+		$existing = [];
+		while ($row = $cursor->fetch()) {
+			$existing[$row['remote'] . "\0" . $row['remote_id']] = true;
+		}
+		$cursor->closeCursor();
+
+		$inserted = 0;
+		foreach ($data['shares'] as $share) {
+			$remote   = (string)($share['remote']      ?? '');
+			$remoteId = (string)($share['remote_id']   ?? '');
+			$token    = (string)($share['share_token'] ?? '');
+			$name     = '/' . ltrim((string)($share['name'] ?? ''), '/');
+			$owner    = (string)($share['owner']       ?? '');
+
+			if ($remote === '' || $remoteId === '' || $token === '') {
+				continue;
+			}
+
+			if (isset($existing[$remote . "\0" . $remoteId])) {
+				continue;
+			}
+
+			$tmpMountpoint = '{{TemporaryMountPointName#' . trim($name, '/') . '}}';
+
+			try {
+				$id = $this->snowflake->nextId();
+				$iq = $this->db->getQueryBuilder();
+				$iq->insert('share_external')
+				   ->setValue('id',              $iq->createNamedParameter($id))
+				   ->setValue('parent',          $iq->createNamedParameter('-1'))
+				   ->setValue('share_type',      $iq->createNamedParameter((int)($share['share_type'] ?? IShare::TYPE_USER), IQueryBuilder::PARAM_INT))
+				   ->setValue('remote',          $iq->createNamedParameter($remote))
+				   ->setValue('remote_id',       $iq->createNamedParameter($remoteId))
+				   ->setValue('share_token',     $iq->createNamedParameter($token))
+				   ->setValue('password',        $iq->createNamedParameter((string)($share['password'] ?? '')))
+				   ->setValue('name',            $iq->createNamedParameter($name))
+				   ->setValue('owner',           $iq->createNamedParameter($owner))
+				   ->setValue('user',            $iq->createNamedParameter($userId))
+				   ->setValue('mountpoint',      $iq->createNamedParameter($tmpMountpoint))
+				   ->setValue('mountpoint_hash', $iq->createNamedParameter(md5($tmpMountpoint)))
+				   ->setValue('accepted',        $iq->createNamedParameter(IShare::STATUS_PENDING, IQueryBuilder::PARAM_INT));
+				$iq->executeStatement();
+				$inserted++;
+
+				$this->notifyPendingShare($userId, (string)$id, $owner, trim($name, '/'));
+			} catch (\Throwable $e) {
+				$this->logger->warning("files_sharding: ShareSyncService: failed to insert share for {$userId}: " . $e->getMessage());
+			}
+		}
+
+		if ($inserted > 0) {
+			$user = $this->userManager->get($userId);
+			if ($user !== null) {
+				$this->eventDispatcher->dispatchTyped(new InvalidateMountCacheEvent($user));
+			}
+		}
+
+		return $inserted;
+	}
+
+	private function notifyPendingShare(string $userId, string $shareId, string $owner, string $name): void {
+		$pendingUrl = $this->urlGenerator->getAbsoluteURL(
+			$this->urlGenerator->linkTo('', 'ocs/v2.php/apps/files_sharing/api/v1/remote_shares/pending/' . $shareId)
+		);
+
+		$notification = $this->notificationManager->createNotification();
+		$notification->setApp('files_sharing')
+			->setUser($userId)
+			->setDateTime(new \DateTime())
+			->setObject('remote_share', $shareId)
+			->setSubject('remote_share', [$owner, $owner, $name, $owner]);
+
+		$decline = $notification->createAction();
+		$decline->setLabel('decline')->setLink($pendingUrl, 'DELETE');
+		$notification->addAction($decline);
+
+		$accept = $notification->createAction();
+		$accept->setLabel('accept')->setLink($pendingUrl, 'POST');
+		$notification->addAction($accept);
+
+		$this->notificationManager->notify($notification);
+	}
+}
