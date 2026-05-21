@@ -7,6 +7,12 @@ namespace OCA\FilesSharding\AppInfo;
 use OCA\DAV\Events\SabrePluginAddEvent;
 use OCA\FederatedFileSharing\Events\FederatedShareAddedEvent;
 use OCA\FilesSharding\Auth\X509Backend;
+use OCA\FilesSharding\Command\AddServer;
+use OCA\FilesSharding\Command\AssignUser;
+use OCA\FilesSharding\Command\AutoAssignUser;
+use OCA\FilesSharding\Command\DeleteServer;
+use OCA\FilesSharding\Command\ListServers;
+use OCA\FilesSharding\Command\ListUsers;
 use OCA\FilesSharding\Listener\CspListener;
 use OCA\FilesSharding\Listener\PostLoginListener;
 use OCA\FilesSharding\Listener\PostLogoutListener;
@@ -56,6 +62,12 @@ class Application extends App implements IBootstrap {
 		$context->registerMiddleware(SudoPasswordMiddleware::class, true);
 		$context->registerEventListener(BeforeTemplateRenderedEvent::class, SudoScriptListener::class);
 		$context->registerEventListener(BeforeLoginTemplateRenderedEvent::class, SudoScriptListener::class);
+		$context->registerCommand(AddServer::class);
+		$context->registerCommand(AssignUser::class);
+		$context->registerCommand(AutoAssignUser::class);
+		$context->registerCommand(DeleteServer::class);
+		$context->registerCommand(ListServers::class);
+		$context->registerCommand(ListUsers::class);
 	}
 
 	public function boot(IBootContext $context): void {
