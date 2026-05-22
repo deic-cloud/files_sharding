@@ -6,8 +6,6 @@ $masterUrl       = $_['master_url']        ?? '';
 $sudoInitiateUrl = $_['sudo_initiate_url'] ?? '';
 ?>
 <div id="fsh-personal" class="section">
-<h2>Files Sharding</h2>
-
 <!-- ── Folder visibility rules ─────────────────────────────────────── -->
 <h3>Folder visibility rules</h3>
 <p class="settings-hint">Restrict access to specific folders based on client IP address or client type.
@@ -62,14 +60,13 @@ Use it for passwordless WebDAV login (add its DN above) or HTTPS client authenti
 
 <p id="fsh-personal-status" style="color:var(--color-error,red);min-height:1.2em"></p>
 
-<!-- ── Identity confirmation ────────────────────────────────────────── -->
+<!-- ── Re-authenticate via master ──────────────────────────────────── -->
 <?php if ($sudoInitiateUrl !== ''): ?>
-<h3>Identity confirmation</h3>
+<h3>Re-authenticate via master</h3>
 <p class="settings-hint">
-  Some security settings (app passwords, active sessions) require identity
-  confirmation. Because your account uses federated login you cannot enter a
-  password — click the button below to re-authenticate via the master server
-  instead. This opens a 30-minute window.
+  Some security settings (app passwords, active sessions) require re-authentication.
+  Because your account uses federated login, click the button below to
+  re-authenticate via the master server. This opens a 30-minute window.
 </p>
 <p>Status: <span id="fsh-sudo-status" style="color:var(--color-text-maxcontrast,#888)">Checking…</span></p>
 <p style="margin-top:.4em">

@@ -3,8 +3,6 @@
 /** @var array $_ */
 ?>
 <div id="fsh-admin" class="section">
-<h2>Files Sharding</h2>
-
 <!-- ── Servers ─────────────────────────────────────────────────────── -->
 <h3>Silo servers</h3>
 <table id="fsh-servers" style="width:100%;border-collapse:collapse;margin-bottom:1em">

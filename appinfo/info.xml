@@ -7,7 +7,7 @@
 	<description>Manages a master + silo architecture: the master authenticates users and redirects them to their home silo. Each silo runs a full Nextcloud installation and can operate independently. Cross-silo sharing uses Nextcloud federation with stable user@master identities.</description>
 	<version>1.0.0</version>
 	<licence>agpl</licence>
-	<author mail="fror@deic.dk">DeIC</author>
+	<author mail="fror@dtu.dk">Frederik Orellana, DTU</author>
 	<namespace>FilesSharding</namespace>
 	<category>files</category>
 	<dependencies>
@@ -35,6 +35,7 @@
 	<settings>
 		<admin>OCA\FilesSharding\Settings\AdminSettings</admin>
 		<personal>OCA\FilesSharding\Settings\PersonalSettings</personal>
+		<personal-section>OCA\FilesSharding\Settings\PersonalSection</personal-section>
 	</settings>
 	<remote>
 		<sharingin>appinfo/remote.php</sharingin>

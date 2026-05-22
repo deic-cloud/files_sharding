@@ -33,7 +33,7 @@ class PersonalSettings implements ISettings {
 	}
 
 	public function getSection(): string {
-		return 'personal-info';
+		return 'files-sharding';
 	}
 
 	public function getPriority(): int {
