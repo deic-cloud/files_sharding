@@ -34,6 +34,7 @@
 	</collaboration>
 	<settings>
 		<admin>OCA\FilesSharding\Settings\AdminSettings</admin>
+		<admin-section>OCA\FilesSharding\Settings\AdminSection</admin-section>
 		<personal>OCA\FilesSharding\Settings\PersonalSettings</personal>
 		<personal-section>OCA\FilesSharding\Settings\PersonalSection</personal-section>
 	</settings>

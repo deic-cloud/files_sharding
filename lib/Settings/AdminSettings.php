@@ -15,7 +15,7 @@ class AdminSettings implements ISettings {
 	}
 
 	public function getSection(): string {
-		return 'additional';
+		return 'files-sharding';
 	}
 
 	public function getPriority(): int {
