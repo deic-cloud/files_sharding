@@ -1,6 +1,6 @@
-# files_sharding — Horizontal sharding for Nextcloud
+# files_sharding — Trusted federations for Nextcloud
 
-Distribute users across a cluster of independent Nextcloud silo nodes.
+Distribute users across Nextcloud nodes.
 
 **Author:** Frederik Orellana, Technical University of Denmark (fror@dtu.dk) — developed for the ScienceData cloud platform.  
 **License:** AGPL-3.0
