@@ -29,12 +29,17 @@ async function loadFolders() {
   tb.innerHTML = '';
   folders.forEach(f => {
     const tr = document.createElement('tr');
-    const checked = f.hide_from_clients ? 'checked' : '';
+    const checked  = f.hide_from_clients ? 'checked' : '';
+    const locked   = f.locked_by && f.locked_by !== '';
+    const cbAttrs  = locked ? `${checked} disabled title="Set by ${e(f.locked_by)}"` : `${checked} data-id="${f.id}" class="fsh-hide-toggle" title="Hide from sync clients (mirall / ownCloud desktop)"`;
+    const delCell  = locked
+      ? `<td><span title="Managed by ${e(f.locked_by)}" style="opacity:.45;cursor:default">🔒</span></td>`
+      : `<td><button data-id="${f.id}" class="fsh-del-folder" type="button" title="Remove">🗑️</button></td>`;
     tr.innerHTML = `
       <td><code>${e(f.folder)}</code></td>
       <td>${e(f.only_from || '(any)')}</td>
-      <td class="fsh-hide-cell"><input type="checkbox" ${checked} data-id="${f.id}" class="fsh-hide-toggle" title="Hide from sync clients (mirall / ownCloud desktop)"></td>
-      <td><button data-id="${f.id}" class="fsh-del-folder" type="button" title="Remove">🗑️</button></td>`;
+      <td class="fsh-hide-cell"><input type="checkbox" ${cbAttrs}></td>
+      ${delCell}`;
     tb.appendChild(tr);
   });
 }

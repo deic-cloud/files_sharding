@@ -49,7 +49,7 @@ class SharesRootCollection implements ICollection {
 		return array_values($this->buildChildren());
 	}
 
-	public function getChild(string $name): ShareNode {
+	public function getChild($name): ShareNode {
 		$children = $this->buildChildren();
 		if (!isset($children[$name])) {
 			throw new NotFound("$name not found");
@@ -57,25 +57,25 @@ class SharesRootCollection implements ICollection {
 		return $children[$name];
 	}
 
-	public function childExists(string $name): bool {
+	public function childExists($name): bool {
 		return isset($this->buildChildren()[$name]);
 	}
 
 	// ── Read-only stubs ───────────────────────────────────────────────────────
 
-	public function createFile(string $name, $data = null): string {
+	public function createFile($name, $data = null): never {
 		throw new Forbidden('sharingin/sharingout is read-only');
 	}
 
-	public function createDirectory(string $name): void {
+	public function createDirectory($name): never {
 		throw new Forbidden('sharingin/sharingout is read-only');
 	}
 
-	public function delete(): void {
+	public function delete(): never {
 		throw new Forbidden('sharingin/sharingout is read-only');
 	}
 
-	public function setName(string $name): void {
+	public function setName($name): never {
 		throw new Forbidden('sharingin/sharingout is read-only');
 	}
 

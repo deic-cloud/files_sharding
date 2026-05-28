@@ -75,7 +75,7 @@ class ShareNode implements ICollection, IFile {
 		));
 	}
 
-	public function getChild(string $name): ShareNode {
+	public function getChild($name): ShareNode {
 		if (!($this->node instanceof Folder)) {
 			throw new NotFound($name);
 		}
@@ -87,7 +87,7 @@ class ShareNode implements ICollection, IFile {
 		}
 	}
 
-	public function childExists(string $name): bool {
+	public function childExists($name): bool {
 		if (!($this->node instanceof Folder)) {
 			return false;
 		}
@@ -96,7 +96,7 @@ class ShareNode implements ICollection, IFile {
 
 	// ── Write stubs ───────────────────────────────────────────────────────────
 
-	public function createFile(string $name, $data = null): string {
+	public function createFile($name, $data = null): string {
 		if ($this->readOnly || !($this->node instanceof Folder)) {
 			throw new Forbidden('Read-only');
 		}
@@ -107,7 +107,7 @@ class ShareNode implements ICollection, IFile {
 		return '"' . $file->getEtag() . '"';
 	}
 
-	public function createDirectory(string $name): void {
+	public function createDirectory($name): void {
 		if ($this->readOnly || !($this->node instanceof Folder)) {
 			throw new Forbidden('Read-only');
 		}
@@ -121,7 +121,7 @@ class ShareNode implements ICollection, IFile {
 		$this->node->delete();
 	}
 
-	public function setName(string $name): void {
+	public function setName($name): void {
 		throw new Forbidden('Read-only');
 	}
 }

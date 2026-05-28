@@ -38,4 +38,42 @@ class DataFolderMapper extends QBMapper {
 			->where($qb->expr()->eq('user_id', $qb->createNamedParameter($userId)));
 		$qb->executeStatement();
 	}
+
+	public function findByUserIdAndFolderAndLockedBy(string $userId, string $folder, string $lockedBy): ?DataFolder {
+		$qb = $this->db->getQueryBuilder();
+		$qb->select('*')->from($this->getTableName())
+			->where($qb->expr()->eq('user_id',   $qb->createNamedParameter($userId)))
+			->andWhere($qb->expr()->eq('folder',   $qb->createNamedParameter($folder)))
+			->andWhere($qb->expr()->eq('locked_by', $qb->createNamedParameter($lockedBy)));
+		try {
+			return $this->findEntity($qb);
+		} catch (\OCP\AppFramework\Db\DoesNotExistException) {
+			return null;
+		}
+	}
+
+	public function upsertLockedRule(string $userId, string $folder, bool $hideFromClients, string $lockedBy): void {
+		$existing = $this->findByUserIdAndFolderAndLockedBy($userId, $folder, $lockedBy);
+		if ($existing !== null) {
+			$existing->setHideFromClients($hideFromClients);
+			$this->update($existing);
+		} else {
+			$rule = new DataFolder();
+			$rule->setUserId($userId);
+			$rule->setFolder($folder);
+			$rule->setOnlyFrom('');
+			$rule->setHideFromClients($hideFromClients);
+			$rule->setLockedBy($lockedBy);
+			$this->insert($rule);
+		}
+	}
+
+	public function deleteLockedRule(string $userId, string $folder, string $lockedBy): void {
+		$qb = $this->db->getQueryBuilder();
+		$qb->delete($this->getTableName())
+			->where($qb->expr()->eq('user_id',   $qb->createNamedParameter($userId)))
+			->andWhere($qb->expr()->eq('folder',   $qb->createNamedParameter($folder)))
+			->andWhere($qb->expr()->eq('locked_by', $qb->createNamedParameter($lockedBy)));
+		$qb->executeStatement();
+	}
 }
