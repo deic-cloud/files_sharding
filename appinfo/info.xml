@@ -11,7 +11,7 @@
 	<namespace>FilesSharding</namespace>
 	<category>files</category>
 	<dependencies>
-		<nextcloud min-version="28" max-version="34"/>
+		<nextcloud min-version="28" max-version="35"/>
 		<php min-version="8.2"/>
 		<app>dav</app>
 	</dependencies>
