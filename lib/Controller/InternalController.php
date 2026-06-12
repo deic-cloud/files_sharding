@@ -98,8 +98,11 @@ class InternalController extends Controller {
 	 */
 	#[PublicPage]
 	#[NoCSRFRequired]
-	public function updateFree(int $id, int $freeGb): JSONResponse {
+	public function updateFree(int $id, int $freeGb, string $instanceid = ''): JSONResponse {
 		if ($err = $this->checkSecret()) return $err;
+		if ($instanceid !== '') {
+			$this->config->setAppValue('files_sharding', 'silo_instanceid_' . $id, $instanceid);
+		}
 		$ok = $this->shardingService->updateFree($id, $freeGb);
 		return $ok
 			? new JSONResponse(['success' => true])
