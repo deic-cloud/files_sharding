@@ -1,7 +1,7 @@
 /**
  * Injected on the silo login page when a master server is configured.
  *
- * Adds a "Login via master server" link below the login form.
+ * Adds a "Log in via master server" link below the login form.
  */
 (function () {
 'use strict';
@@ -18,7 +18,7 @@ const href = base + (returnPath ? '?return=' + encodeURIComponent(returnPath) : 
 const a = document.createElement('a');
 a.setAttribute('data-fsh-master-login', '1');
 a.href = href;
-a.textContent = 'Login via master server';
+a.textContent = 'Log in via master server';
 a.style.cssText = 'display:block;margin-top:1.5em;text-align:center;font-size:.9em;'
   + 'color:var(--color-primary-element,#006aa3)';
 

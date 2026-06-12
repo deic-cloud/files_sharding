@@ -52,6 +52,7 @@ class Application extends App implements IBootstrap {
 		$context->registerEventListener(SabrePluginAddEvent::class, SabrePluginListener::class);
 		$context->registerEventListener(FederatedShareAddedEvent::class, ProxyShareAcceptanceListener::class);
 		$context->registerMiddleware(RedirectMiddleware::class, true);
+		$context->registerMiddleware(\OCA\FilesSharding\Middleware\LogoutRedirectMiddleware::class, true);
 		$context->registerMiddleware(OcmShareReceivedMiddleware::class, true);
 		$context->registerMiddleware(SudoPasswordMiddleware::class, true);
 		$context->registerEventListener(BeforeTemplateRenderedEvent::class, SudoScriptListener::class);

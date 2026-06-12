@@ -106,7 +106,10 @@ class ShareSyncService {
 				$iq->executeStatement();
 				$inserted++;
 
-				$this->notifyPendingShare($userId, (string)$id, $owner, trim($name, '/'));
+				// Build cloud ID: strip protocol+trailing slash so resolveCloudId() works in NC34
+				$remoteHost = preg_replace('#^https?://#', '', rtrim($remote, '/'));
+				$ownerCloudId = $owner . '@' . $remoteHost;
+				$this->notifyPendingShare($userId, (string)$id, $ownerCloudId, trim($name, '/'));
 			} catch (\Throwable $e) {
 				$this->logger->warning("files_sharding: ShareSyncService: failed to insert share for {$userId}: " . $e->getMessage());
 			}
