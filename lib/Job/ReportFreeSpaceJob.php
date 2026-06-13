@@ -59,12 +59,7 @@ class ReportFreeSpaceJob extends TimedJob {
 
 		$freeGb = (int)($freeBytes / 1_073_741_824);
 
-		$result = $this->client->post($masterUrl, "internal/servers/{$serverId}/free", [
-			'free_gb'    => $freeGb,
-			// lets the master clear this silo's session cookie on logout (the
-			// session cookie is named after the instanceid)
-			'instanceid' => (string)$this->config->getSystemValue('instanceid', ''),
-		]);
+		$result = $this->client->post($masterUrl, "internal/servers/{$serverId}/free", ['free_gb' => $freeGb]);
 		if ($result === null) {
 			$this->logger->warning("files_sharding: ReportFreeSpaceJob: could not report free space to master (server_id={$serverId})");
 		} else {

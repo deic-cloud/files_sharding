@@ -75,26 +75,6 @@ class LoginController extends Controller {
 		if ($this->userSession->isLoggedIn()) {
 			$this->userSession->logout();
 		}
-		// Single sign-out for THIS browser: expire every known silo session
-		// cookie (named after the silo's instanceid, reported with the free-
-		// space heartbeat). Requires 'cookie_domain' in config.php on all
-		// nodes when the nodes have different hostnames on a shared domain;
-		// with a shared hostname (test setup) host-only cookies work as-is.
-		$cookieDomain = (string)$this->config->getSystemValue('cookie_domain', '');
-		foreach ($this->shardingService->getAllServers() as $server) {
-			$iid = $this->config->getAppValue('files_sharding', 'silo_instanceid_' . $server->getId(), '');
-			if ($iid === '') {
-				continue;
-			}
-			setcookie($iid, '', [
-				'expires'  => time() - 3600,
-				'path'     => \OC::$WEBROOT ?: '/',
-				'domain'   => $cookieDomain,
-				'secure'   => true,
-				'httponly' => true,
-				'samesite' => 'Lax',
-			]);
-		}
 		return new RedirectResponse($this->urlGenerator->linkToRouteAbsolute('core.login.showLoginForm'));
 	}
 
