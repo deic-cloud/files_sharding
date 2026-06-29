@@ -59,7 +59,16 @@ class CertificateService {
 		}
 
 		$dn  = ['commonName' => $userId, 'organizationName' => $org];
-		$csr = openssl_csr_new($dn, $privKey, ['digest_alg' => 'sha256']);
+		// Use a minimal OpenSSL config (prompt = no, empty [dn]) so the system
+		// openssl.cnf's [req_distinguished_name] demo defaults (C=AU, ST=Some-State, …)
+		// don't leak into the subject. The batch service authorises by exact DN string,
+		// so it must be precisely /CN=<user>/O=<org> — matching the original chooser
+		// app's `openssl req -subj "/CN=$user/O=sciencedata.dk"` behaviour.
+		$confFile = $dir . '/openssl-req.cnf';
+		file_put_contents($confFile, "[req]\ndistinguished_name = dn\nprompt = no\n[dn]\n");
+		chmod($confFile, 0600);
+		$csr = openssl_csr_new($dn, $privKey, ['digest_alg' => 'sha256', 'config' => $confFile]);
+		@unlink($confFile);
 		if ($csr === false) {
 			$this->logger->error("files_sharding: CertificateService: openssl_csr_new failed for {$userId}");
 			return false;
