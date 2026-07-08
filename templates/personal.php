@@ -32,9 +32,6 @@ Leave <em>Allowed from</em> empty to allow from any IP.</p>
 
 <!-- ── X.509 client certificates ───────────────────────────────────── -->
 <h3>X.509 client certificate DNs</h3>
-<p class="settings-hint">Add certificate Subject DNs that authenticate you for WebDAV access
-without a password (requires Apache/nginx to forward the verified DN as
-<code>SSL-CLIENT-S-DN</code> or <code>X-Ssl-Client-S-Dn</code>).</p>
 
 <ul id="fsh-dns" style="margin-bottom:.8em;padding:0;list-style:none"></ul>
 
