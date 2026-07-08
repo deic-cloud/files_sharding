@@ -32,13 +32,13 @@ Leave <em>Allowed from</em> empty to allow from any IP.</p>
 
 <!-- ── X.509 client certificates ───────────────────────────────────── -->
 <h3>X.509 client certificate DNs</h3>
-<p class="settings-hint">Add certificate Subject DNs that authenticate you for WebDAV access without a password.</p>
+<p class="settings-hint">Certificate subject DNs that authenticate you for WebDAV access without a password:</p>
 
 <ul id="fsh-dns" style="margin-bottom:.8em;padding:0;list-style:none"></ul>
 
 <form id="fsh-dn-form" style="display:flex;gap:.5em;align-items:flex-end;flex-wrap:wrap;margin-bottom:1em">
  <label>Subject DN<br>
-  <input type="text" id="fsh-dn-value" placeholder="CN=Alice,O=Example,C=DK" style="width:340px">
+  <input type="text" id="fsh-dn-value" placeholder="/CN=alice/O=sciencedata.dk" style="width:340px">
  </label>
  <button type="submit" class="primary">Add DN</button>
 </form>
