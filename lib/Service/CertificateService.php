@@ -87,13 +87,41 @@ class CertificateService {
 		}
 		file_put_contents($dir . '/usercert.pem', $certPem);
 
+		$dn = "/CN={$userId}/O={$org}";
+		// Auto-register the certificate subject for X.509 authentication so the
+		// user (and trusted daemons acting on their behalf) can be resolved by
+		// cert DN without anyone re-typing it — generating the certificate is
+		// the deliberate opt-in, and this avoids typos.
+		$this->registerDn($userId, $dn);
+
 		$info    = openssl_x509_parse($signed);
 		$validTo = $info['validTo_time_t'] ?? 0;
 
 		return [
-			'dn'      => "/CN={$userId}/O={$org}",
+			'dn'      => $dn,
 			'expires' => date('Y-m-d', (int)$validTo),
 		];
+	}
+
+	/**
+	 * Register a certificate subject DN in the user's x509_dn_{0..9} preferences
+	 * (where X509Backend looks it up). Idempotent: skips if already present,
+	 * otherwise fills the first free slot.
+	 */
+	private function registerDn(string $userId, string $dn): void {
+		$firstFree = null;
+		for ($i = 0; $i < 10; $i++) {
+			$existing = $this->config->getUserValue($userId, 'files_sharding', "x509_dn_{$i}", '');
+			if ($existing === $dn) {
+				return;
+			}
+			if ($existing === '' && $firstFree === null) {
+				$firstFree = $i;
+			}
+		}
+		if ($firstFree !== null) {
+			$this->config->setUserValue($userId, 'files_sharding', "x509_dn_{$firstFree}", $dn);
+		}
 	}
 
 	public function getCertInfo(string $userId): ?array {
