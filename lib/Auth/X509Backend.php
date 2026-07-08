@@ -7,7 +7,9 @@ namespace OCA\FilesSharding\Auth;
 use OCA\FilesSharding\Db\ServerMapper;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\Authentication\IApacheBackend;
+use OCP\DB\QueryBuilder\IQueryBuilder;
 use OCP\IConfig;
+use OCP\IDBConnection;
 use OCP\IRequest;
 use OCP\ISession;
 use OCP\IUserBackend;
@@ -41,6 +43,7 @@ class X509Backend extends ABackend implements IUserBackend, IApacheBackend, IChe
 		private IConfig       $config,
 		private ServerMapper  $serverMapper,
 		private ISession      $session,
+		private IDBConnection $db,
 		private LoggerInterface $logger,
 	) {
 	}
@@ -135,29 +138,108 @@ class X509Backend extends ABackend implements IUserBackend, IApacheBackend, IChe
 	// ── Helpers ───────────────────────────────────────────────────────────────
 
 	private function getClientDn(): string {
-		// Apache: SSL_CLIENT_S_DN passed as header SSL-CLIENT-S-DN
-		// nginx:  $ssl_client_s_dn passed as header X-Ssl-Client-S-Dn
-		$dn = $this->request->getHeader('SSL-CLIENT-S-DN')
+		// The web server passes the verified client certificate subject DN:
+		//   Apache: SSL_CLIENT_S_DN as header SSL-CLIENT-S-DN
+		//   nginx:  $ssl_client_s_dn as header X-Ssl-Client-S-Dn
+		$dn = trim($this->request->getHeader('SSL-CLIENT-S-DN')
 			?: $this->request->getHeader('X-Ssl-Client-S-Dn')
-			?: '';
-		return trim($dn);
+			?: '');
+		if ($dn === '') {
+			return '';
+		}
+		// Trusted-daemon relay: a request may be made on behalf of a user by a
+		// trusted host (e.g. a compute service fetching/delivering that user's
+		// files). If the presented certificate DN is one of the configured
+		// trusted relay hosts, the real user's DN is carried in the header named
+		// by 'dn_header' — set only by the trusted front proxy — so use it
+		// instead. Both the trusted-host match and the user lookup are done on
+		// tokenised DNs so slash/comma format and attribute order don't matter.
+		$relayed = $this->relayedDn($dn);
+		return $relayed !== '' ? $relayed : $dn;
 	}
 
-	private function findUserByDn(string $dn): string {
-		// User certificate DNs are stored in oc_preferences as
-		// app=files_sharding, key=x509_dn_{index}, value=<dn>
-		// We do a brute-force scan; results are small and rarely change.
-		$rows = $this->config->getUsersForUserValue('files_sharding', 'x509_dn_0', $dn);
-		if (!empty($rows)) {
-			return $rows[0];
+	/**
+	 * If $presentedDn is a trusted relay host and the dn_header carries a DN,
+	 * return that relayed user DN; otherwise ''.
+	 */
+	private function relayedDn(string $presentedDn): string {
+		$trusted  = trim($this->config->getSystemValueString('trusted_dn_header_host_dns', ''));
+		$dnHeader = trim($this->config->getSystemValueString('dn_header', ''));
+		if ($trusted === '' || $dnHeader === '') {
+			return '';
 		}
-		// Check indices 1..9
-		for ($i = 1; $i < 10; $i++) {
-			$rows = $this->config->getUsersForUserValue('files_sharding', "x509_dn_{$i}", $dn);
-			if (!empty($rows)) {
-				return $rows[0];
+		$headerDn = trim($this->request->getHeader($dnHeader));
+		if ($headerDn === '') {
+			return '';
+		}
+		$presentedTok = self::tokenizeDn($presentedDn);
+		// trusted_dn_header_host_dns is a comma-separated list of (slash-format)
+		// host DNs; slash-format DNs contain no commas, so splitting is safe.
+		foreach (explode(',', $trusted) as $hostDn) {
+			if (self::tokenizeDn($hostDn) == $presentedTok) {
+				return $headerDn;
 			}
 		}
 		return '';
+	}
+
+	/**
+	 * Normalise a DN into an [attr => value] map so DNs compare equal regardless
+	 * of separator style (/CN=…/O=… vs CN=…,O=…) and attribute order.
+	 * @return array<string,string>
+	 */
+	private static function tokenizeDn(string $dn): array {
+		$dn = trim($dn);
+		if ($dn === '') {
+			return [];
+		}
+		$parts = $dn[0] === '/' ? explode('/', $dn) : explode(',', $dn);
+		$out = [];
+		foreach ($parts as $part) {
+			$part = trim($part);
+			if ($part === '' || !str_contains($part, '=')) {
+				continue;
+			}
+			[$k, $v] = explode('=', $part, 2);
+			$out[trim($k)] = trim($v);
+		}
+		return $out;
+	}
+
+	/**
+	 * Map a certificate subject DN to a user id. User DNs are stored in
+	 * oc_preferences (app=files_sharding, key=x509_dn_0..9) by the personal
+	 * X.509 settings. Compared tokenised, so the stored format need not match
+	 * the format the web server/proxy presents. Returns '' if none — or if more
+	 * than one user has registered the same DN (ambiguous → refuse).
+	 */
+	private function findUserByDn(string $dn): string {
+		$target = self::tokenizeDn($dn);
+		if ($target === []) {
+			return '';
+		}
+		$keys = array_map(static fn ($i) => "x509_dn_{$i}", range(0, 9));
+		$qb = $this->db->getQueryBuilder();
+		$qb->select('userid', 'configvalue')
+			->from('preferences')
+			->where($qb->expr()->eq('appid', $qb->createNamedParameter('files_sharding')))
+			->andWhere($qb->expr()->in('configkey', $qb->createNamedParameter($keys, IQueryBuilder::PARAM_STR_ARRAY)));
+		$result = $qb->executeQuery();
+		$match = '';
+		while ($row = $result->fetch()) {
+			if (($row['configvalue'] ?? '') === '') {
+				continue;
+			}
+			if (self::tokenizeDn((string)$row['configvalue']) == $target) {
+				if ($match !== '' && $match !== $row['userid']) {
+					$this->logger->error('files_sharding: X.509 DN registered by more than one user, refusing: ' . $dn);
+					$result->closeCursor();
+					return '';
+				}
+				$match = (string)$row['userid'];
+			}
+		}
+		$result->closeCursor();
+		return $match;
 	}
 }
