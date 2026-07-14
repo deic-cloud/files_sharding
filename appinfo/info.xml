@@ -9,6 +9,12 @@
 	<licence>agpl</licence>
 	<author mail="fror@dtu.dk">Frederik Orellana, DTU</author>
 	<namespace>FilesSharding</namespace>
+	<types>
+		<!-- Load in the 'authentication' group so the X509 auth backend is
+		     registered before the login/WebDAV auth phase runs (otherwise it
+		     registers too late for remote.php on cold FPM workers). -->
+		<authentication/>
+	</types>
 	<category>files</category>
 	<dependencies>
 		<nextcloud min-version="28" max-version="35"/>

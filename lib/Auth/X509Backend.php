@@ -13,6 +13,7 @@ use OCP\IDBConnection;
 use OCP\IRequest;
 use OCP\ISession;
 use OCP\IUserBackend;
+use OCP\IUserManager;
 use OCP\User\Backend\ABackend;
 use OCP\User\Backend\ICheckPasswordBackend;
 use Psr\Log\LoggerInterface;
@@ -32,6 +33,11 @@ use Psr\Log\LoggerInterface;
  *    oc_preferences by the personal settings page) authenticates them for
  *    WebDAV access without a password.
  *
+ * 3. Trusted daemon: A request whose presented certificate DN is one of the
+ *    'trusted_dn_header_host_dns' (e.g. the batch service, "/CN=batch") may act
+ *    on behalf of any user — the user is named in the 'dn_header' header
+ *    (default SSL-CLIENT-DN), which only the trusted daemon/proxy may set.
+ *
  * Apache/nginx must be configured to pass the verified certificate DN as
  * the SSL_CLIENT_S_DN header (or SSL_CLIENT_S_DN server variable).
  */
@@ -44,6 +50,7 @@ class X509Backend extends ABackend implements IUserBackend, IApacheBackend, IChe
 		private ServerMapper  $serverMapper,
 		private ISession      $session,
 		private IDBConnection $db,
+		private IUserManager  $userManager,
 		private LoggerInterface $logger,
 	) {
 	}
@@ -79,8 +86,12 @@ class X509Backend extends ABackend implements IUserBackend, IApacheBackend, IChe
 		if ($dn === '') {
 			return false;
 		}
-		// Only activate when the DN is actually known — prevents a proxy that
-		// forwards SSL headers for all connections from hijacking password sessions.
+		// Only activate when the DN resolves to an actual identity — prevents a
+		// proxy that forwards SSL headers for all connections from hijacking
+		// password sessions.
+		if ($this->isTrustedDaemon($dn)) {
+			return $this->impersonatedUser() !== '';
+		}
 		return $this->serverMapper->findByDn($dn) !== null
 			|| $this->findUserByDn($dn) !== '';
 	}
@@ -89,6 +100,14 @@ class X509Backend extends ABackend implements IUserBackend, IApacheBackend, IChe
 		$dn = $this->getClientDn();
 		if ($dn === '') {
 			return '';
+		}
+
+		// Trusted daemon (e.g. the batch service, cert "/CN=batch"): act on
+		// behalf of the user named in the Basic-auth header (empty password).
+		// The verified daemon certificate is the authorisation; the username
+		// only selects whom to impersonate. Must be an existing account.
+		if ($this->isTrustedDaemon($dn)) {
+			return $this->impersonatedUser();
 		}
 
 		// Check if the DN matches a registered server
@@ -141,46 +160,63 @@ class X509Backend extends ABackend implements IUserBackend, IApacheBackend, IChe
 		// The web server passes the verified client certificate subject DN:
 		//   Apache: SSL_CLIENT_S_DN as header SSL-CLIENT-S-DN
 		//   nginx:  $ssl_client_s_dn as header X-Ssl-Client-S-Dn
-		$dn = trim($this->request->getHeader('SSL-CLIENT-S-DN')
+		// The front proxy MUST set this from the verified certificate (over-
+		// writing any client-supplied value) so it cannot be forged.
+		return trim($this->request->getHeader('SSL-CLIENT-S-DN')
 			?: $this->request->getHeader('X-Ssl-Client-S-Dn')
 			?: '');
-		if ($dn === '') {
-			return '';
-		}
-		// Trusted-daemon relay: a request may be made on behalf of a user by a
-		// trusted host (e.g. a compute service fetching/delivering that user's
-		// files). If the presented certificate DN is one of the configured
-		// trusted relay hosts, the real user's DN is carried in the header named
-		// by 'dn_header' — set only by the trusted front proxy — so use it
-		// instead. Both the trusted-host match and the user lookup are done on
-		// tokenised DNs so slash/comma format and attribute order don't matter.
-		$relayed = $this->relayedDn($dn);
-		return $relayed !== '' ? $relayed : $dn;
 	}
 
 	/**
-	 * If $presentedDn is a trusted relay host and the dn_header carries a DN,
-	 * return that relayed user DN; otherwise ''.
+	 * Is the presented certificate DN one of the configured trusted daemons
+	 * (trusted_dn_header_host_dns) that may act on behalf of other users?
+	 * Matched on tokenised DNs so slash/comma format and attribute order don't
+	 * matter.
 	 */
-	private function relayedDn(string $presentedDn): string {
-		$trusted  = trim($this->config->getSystemValueString('trusted_dn_header_host_dns', ''));
-		$dnHeader = trim($this->config->getSystemValueString('dn_header', ''));
-		if ($trusted === '' || $dnHeader === '') {
-			return '';
-		}
-		$headerDn = trim($this->request->getHeader($dnHeader));
-		if ($headerDn === '') {
-			return '';
+	private function isTrustedDaemon(string $presentedDn): bool {
+		$trusted = trim($this->config->getSystemValueString('trusted_dn_header_host_dns', ''));
+		if ($trusted === '') {
+			return false;
 		}
 		$presentedTok = self::tokenizeDn($presentedDn);
+		if ($presentedTok === []) {
+			return false;
+		}
 		// trusted_dn_header_host_dns is a comma-separated list of (slash-format)
 		// host DNs; slash-format DNs contain no commas, so splitting is safe.
 		foreach (explode(',', $trusted) as $hostDn) {
 			if (self::tokenizeDn($hostDn) == $presentedTok) {
-				return $headerDn;
+				return true;
 			}
 		}
-		return '';
+		return false;
+	}
+
+	/**
+	 * The user a trusted daemon is acting on behalf of, carried in the header
+	 * named by 'dn_header' (default SSL-CLIENT-DN) and set only by the trusted
+	 * daemon/proxy. The value may be a bare username or a full subject DN, so
+	 * resolve — in order — an exact username, the CN of a DN, or a DN a user
+	 * has registered. Returns '' (no impersonation) unless it names a real,
+	 * existing account.
+	 */
+	private function impersonatedUser(): string {
+		$header = trim($this->config->getSystemValueString('dn_header', 'SSL-CLIENT-DN'));
+		if ($header === '') {
+			return '';
+		}
+		$value = trim($this->request->getHeader($header));
+		if ($value === '') {
+			return '';
+		}
+		if ($this->userManager->userExists($value)) {
+			return $value;
+		}
+		$tok = self::tokenizeDn($value);
+		if (isset($tok['CN']) && $this->userManager->userExists($tok['CN'])) {
+			return $tok['CN'];
+		}
+		return $this->findUserByDn($value);
 	}
 
 	/**
