@@ -12,7 +12,7 @@ Distribute users across Nextcloud nodes.
 - One **master** Nextcloud instance acts as the central identity and redirect hub. Users log in at the master URL and are immediately redirected to their assigned silo.
 - N **silo** Nextcloud instances each run a full, independent Nextcloud installation. A user's files live entirely on their silo.
 - **Federated shares** link silos together using stable `user@master` identities, so users on different silos can share files without knowing which silo the other user is on.
-- The master holds the server registry and user-to-silo assignments. Silos report free space back to the master; new users are auto-assigned to the least-loaded silo.
+- The master holds the server registry and user-to-silo assignments. Silos report free space back to the master; new users are auto-assigned to a silo by identity regex, falling back to the least-loaded silo (see *Silo selection*).
 
 WebDAV and desktop/mobile sync clients connect directly to the silo after the initial redirect. Write operations (PUT, MKCOL, etc.) are never proxied — clients must target the silo URL directly.
 
@@ -73,10 +73,23 @@ occ files-sharding:list-users
 
 The master stores silo metadata in `files_sharding_servers` (url, internal_url, site, total_gb, free_gb, x509_dn, user_regex). User-to-silo assignments live in `files_sharding_user_servers`.
 
+### Silo selection (auto-assignment)
+
+When a user with no silo assignment logs in interactively for the first time, `PostLoginListener` calls `ShardingService::autoAssign()` on the master to pick their home silo, in this priority order:
+
+1. **Admins are skipped.** Members of the `admin` group stay on the master (they need the admin UI) and are never pushed to a silo.
+2. If **no silos are registered**, the user stays on the master.
+3. **Regex match first.** Each silo may define a `user_regex` (in `files_sharding_servers`). Silos whose regex matches the user ID are the candidates, sorted by free space (`free_gb`, descending); the emptiest match wins. This lets you route users to a silo by identity — e.g. send `@dtu.dk` users to a DTU silo.
+4. **Free-space fallback.** If no regex matches, all silos are sorted by free space and the emptiest is chosen.
+
+The choice is stored in `files_sharding_user_servers`, then `getRedirectUrl()` sends the user there. User IDs are WAYF UIDs (`eduPersonPrincipalName`); for some institutions (e.g. DTU) this is the same as the user's email.
+
+Because auto-assignment fires on the login event, users created **without** an interactive login (bulk/scripted provisioning or migration) are *not* assigned automatically — run `occ files-sharding:auto-assign <uid>` for each, or assign explicitly with `occ files-sharding:assign-user <uid> <serverId>`.
+
 ### Login redirect flow
 
 1. User logs in at the master.
-2. `PostLoginListener` looks up the user's assigned silo.
+2. `PostLoginListener` looks up the user's assigned silo, auto-assigning one on first login if the user has none (see *Silo selection* above).
 3. Master issues a short-lived token and redirects the browser to `https://silo/index.php/apps/files_sharding/login?token=…`.
 4. The silo validates the token with the master (`/internal/token/validate`) and creates a local NC session.
 
