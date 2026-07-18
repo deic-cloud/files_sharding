@@ -25,6 +25,9 @@ return [
 		['name' => 'x509#downloadCert',   'url' => '/x509/cert',   'verb' => 'GET'],
 		['name' => 'x509#downloadKey',    'url' => '/x509/key',    'verb' => 'GET'],
 		['name' => 'x509#downloadPkcs12', 'url' => '/x509/pkcs12', 'verb' => 'GET'],
+		// VO membership: group -> newline-separated member X.509 DNs (batch/GridFactory).
+		// The silo Apache config rewrites /vos/<group> to this route.
+		['name' => 'vo#members', 'url' => '/vos/{gid}', 'verb' => 'GET'],
 		// Master-login sudo confirmation (browser redirect flow; session-authenticated)
 		['name' => 'login#sudoInitiate', 'url' => '/sudo/initiate', 'verb' => 'GET'],
 		['name' => 'login#sudoConfirm',  'url' => '/sudo/confirm',  'verb' => 'GET'],
