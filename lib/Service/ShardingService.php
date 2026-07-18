@@ -30,10 +30,33 @@ class ShardingService {
 
 	// ── Server helpers ────────────────────────────────────────────────────────
 
-	/** Returns true if this NC instance is the master. */
+	/**
+	 * Returns true if this NC instance is the master.
+	 *
+	 * If 'files_sharding_master' is explicitly set in config it wins. Otherwise
+	 * the node identifies itself by matching its own canonical host
+	 * (overwrite.cli.url) against the configured master URL's host — so every
+	 * node can ship an identical config (up to hostname/IP) and the master
+	 * recognises itself.
+	 */
 	public function isMaster(): bool {
-		$val = $this->config->getSystemValue('files_sharding_master', false);
-		return $val === true || $val === 1 || $val === '1' || $val === 'true';
+		$val = $this->config->getSystemValue('files_sharding_master', null);
+		if ($val !== null) {
+			return $val === true || $val === 1 || $val === '1' || $val === 'true';
+		}
+		$masterUrl = $this->masterUrl();
+		$ownUrl = rtrim((string)$this->config->getSystemValue('overwrite.cli.url', ''), '/');
+		if ($masterUrl === '' || $ownUrl === '') {
+			return false;
+		}
+		// Compare host AND port (so instances sharing a hostname but differing by
+		// port — e.g. the test containers — are told apart).
+		$authority = static function (string $url): string {
+			$p = parse_url($url);
+			return strtolower(($p['host'] ?? '') . ':' . ($p['port'] ?? ''));
+		};
+		$masterAuth = $authority($masterUrl);
+		return ($masterAuth !== ':') && $masterAuth === $authority($ownUrl);
 	}
 
 	/** External/public URL of the master — used in browser redirects and federation identities. */
