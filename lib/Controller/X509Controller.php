@@ -6,6 +6,8 @@ namespace OCA\FilesSharding\Controller;
 
 use OCA\FilesSharding\Service\CertificateService;
 use OCP\AppFramework\Controller;
+use OCP\IAppConfig;
+use OCP\IConfig;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
 use OCP\AppFramework\Http\DataDownloadResponse;
@@ -23,18 +25,39 @@ class X509Controller extends Controller {
 		IRequest                   $request,
 		private CertificateService $certificateService,
 		private IUserSession       $userSession,
+		private IConfig            $config,
+		private IAppConfig         $appConfig,
 	) {
 		parent::__construct($appName, $request);
 	}
 
-	private function currentUserId(): string {
-		return $this->userSession->getUser()?->getUID() ?? '';
+	/**
+	 * Whose cert/key to serve. Normally the logged-in user. As a trusted-caller
+	 * path (the old chooser getkey.php): when the request is authenticated as the
+	 * trusted user (user_pods 'trustedUser', e.g. "cloud", or the legacy
+	 * 'vlantrusteduser') AND originates on the trusted VLAN, a $user query param
+	 * selects any user's cert/key. Otherwise a foreign $user is refused ('').
+	 */
+	private function targetUserId(string $user): string {
+		$current = $this->userSession->getUser()?->getUID() ?? '';
+		if ($user === '' || $user === $current) {
+			return $current;
+		}
+		$trustedUser = trim($this->appConfig->getValueString('user_pods', 'trustedUser', ''))
+			?: trim($this->config->getSystemValue('vlantrusteduser', ''));
+		$net = trim($this->config->getSystemValue('trustednet', ''));
+		$ip = $this->request->getRemoteAddress();
+		$onTrustedNet = ($net !== '' && str_starts_with($ip, $net)) || $ip === '127.0.0.1' || $ip === '::1';
+		if ($current !== '' && $current === $trustedUser && $onTrustedNet) {
+			return $user;
+		}
+		return '';
 	}
 
 	#[NoAdminRequired]
 	#[NoCSRFRequired]
-	public function downloadCert(): Response {
-		$userId = $this->currentUserId();
+	public function downloadCert(string $user = ''): Response {
+		$userId = $this->targetUserId($user);
 		$pem    = $this->certificateService->getCertPem($userId);
 		if ($pem === '') {
 			$r = new Response();
@@ -46,8 +69,8 @@ class X509Controller extends Controller {
 
 	#[NoAdminRequired]
 	#[NoCSRFRequired]
-	public function downloadKey(): Response {
-		$userId = $this->currentUserId();
+	public function downloadKey(string $user = ''): Response {
+		$userId = $this->targetUserId($user);
 		$pem    = $this->certificateService->getKeyPem($userId);
 		if ($pem === '') {
 			$r = new Response();
@@ -59,8 +82,8 @@ class X509Controller extends Controller {
 
 	#[NoAdminRequired]
 	#[NoCSRFRequired]
-	public function downloadPkcs12(): Response {
-		$userId = $this->currentUserId();
+	public function downloadPkcs12(string $user = ''): Response {
+		$userId = $this->targetUserId($user);
 		$p12    = $this->certificateService->getPkcs12($userId);
 		if ($p12 === '') {
 			$r = new Response();

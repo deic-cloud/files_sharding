@@ -6,6 +6,7 @@ namespace OCA\FilesSharding\Auth;
 
 use OCP\Authentication\IApacheBackend;
 use OCP\Http\Client\IClientService;
+use OCP\IAppConfig;
 use OCP\ICacheFactory;
 use OCP\IConfig;
 use OCP\IRequest;
@@ -26,9 +27,13 @@ use Psr\Log\LoggerInterface;
  * honoured instead (impersonation) — this is how cloud-owned service pods act on
  * behalf of any user. Empty/any password.
  *
- * The IP→owner map comes from an external container service (system config
- * 'files_sharding_pod_list_url', gated by 'files_sharding_pod_list_password')
- * that shares this instance's user IDs. It is cached briefly.
+ * The IP→owner map comes from an external container service that shares this
+ * instance's user IDs; it is cached briefly. Its host, access password and the
+ * trusted-user name live in the DB (user_pods appconfig: podManagementIP,
+ * getContainersPassword, trustedUser — the historical location, kept there to
+ * avoid bloating config.php). We read those appconfig rows directly — a data
+ * read, not a code dependency on the user_pods app (absent rows → inactive).
+ * Only 'trustednet' (the VLAN prefix) stays a config.php system value.
  *
  * Precedence (enforced by yielding): X.509 relay (SSL-CLIENT-S-DN present) wins,
  * then this IP mechanism, then normal password/session auth. A request carrying
@@ -40,6 +45,7 @@ class IpAuthBackend extends ABackend implements IUserBackend, IApacheBackend {
 	public function __construct(
 		private IRequest        $request,
 		private IConfig         $config,
+		private IAppConfig      $appConfig,
 		private IUserManager    $userManager,
 		private IClientService  $clientService,
 		private ICacheFactory   $cacheFactory,
@@ -126,7 +132,8 @@ class IpAuthBackend extends ABackend implements IUserBackend, IApacheBackend {
 			return '';
 		}
 
-		$trustedUser = trim($this->config->getSystemValue('files_sharding_trusted_user', ''));
+		$trustedUser = trim($this->appConfig->getValueString('user_pods', 'trustedUser', ''))
+			?: trim($this->config->getSystemValue('vlantrusteduser', ''));
 
 		// Container owned by the trusted user → honour the Basic-auth username
 		// (impersonation on behalf of any user).
@@ -179,8 +186,11 @@ class IpAuthBackend extends ABackend implements IUserBackend, IApacheBackend {
 	 * @return string[]
 	 */
 	private function containerList(): array {
-		$url = trim($this->config->getSystemValue('files_sharding_pod_list_url', ''));
-		if ($url === '') {
+		// Host + password live in user_pods appconfig (podManagementIP with the
+		// legacy 'privateIP' fallback; getContainersPassword).
+		$host = trim($this->appConfig->getValueString('user_pods', 'podManagementIP', ''))
+			?: trim($this->appConfig->getValueString('user_pods', 'privateIP', ''));
+		if ($host === '') {
 			return [];
 		}
 		$cache = $this->cacheFactory->isAvailable() ? $this->cacheFactory->createLocal('files_sharding_podips') : null;
@@ -190,8 +200,8 @@ class IpAuthBackend extends ABackend implements IUserBackend, IApacheBackend {
 				return $cached;
 			}
 		}
-		$password = trim($this->config->getSystemValue('files_sharding_pod_list_password', ''));
-		$full = $url . (str_contains($url, '?') ? '&' : '?') . 'fields=no'
+		$password = trim($this->appConfig->getValueString('user_pods', 'getContainersPassword', ''));
+		$full = 'http://' . $host . '/get_containers.php?fields=no'
 			. ($password !== '' ? '&password=' . rawurlencode($password) : '');
 		try {
 			$body = (string)$this->clientService->newClient()->get($full, [
