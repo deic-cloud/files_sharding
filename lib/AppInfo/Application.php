@@ -6,6 +6,7 @@ namespace OCA\FilesSharding\AppInfo;
 
 use OCA\DAV\Events\SabrePluginAddEvent;
 use OCA\FederatedFileSharing\Events\FederatedShareAddedEvent;
+use OCA\FilesSharding\Auth\IpAuthBackend;
 use OCA\FilesSharding\Auth\X509Backend;
 use OCA\FilesSharding\Listener\CspListener;
 use OCA\FilesSharding\Listener\PostLoginListener;
@@ -60,7 +61,10 @@ class Application extends App implements IBootstrap {
 	}
 
 	public function boot(IBootContext $context): void {
-		$context->getServerContainer()->get(IUserManager::class)
-			->registerBackend($context->getServerContainer()->get(X509Backend::class));
+		$userManager = $context->getServerContainer()->get(IUserManager::class);
+		// X509Backend first so the X.509 relay takes precedence; the IP backend
+		// yields when a client-cert DN is present.
+		$userManager->registerBackend($context->getServerContainer()->get(X509Backend::class));
+		$userManager->registerBackend($context->getServerContainer()->get(IpAuthBackend::class));
 	}
 }
