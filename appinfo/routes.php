@@ -20,6 +20,7 @@ return [
 		['name' => 'internal#proxyShareAccept',    'url' => '/internal/shares/proxy-accept',           'verb' => 'POST'],
 		['name' => 'internal#syncShares',          'url' => '/internal/users/{userId}/sync-shares',    'verb' => 'POST'],
 		['name' => 'internal#updateUser',          'url' => '/internal/users/{userId}/update',          'verb' => 'POST'],
+		['name' => 'internal#setPasswordHash',     'url' => '/internal/users/{userId}/pwhash',          'verb' => 'POST'],
 		['name' => 'internal#deleteUser',          'url' => '/internal/users/{userId}/delete',          'verb' => 'POST'],
 		// Certificate downloads (binary responses; session-authenticated)
 		['name' => 'x509#downloadCert',   'url' => '/x509/cert',   'verb' => 'GET'],

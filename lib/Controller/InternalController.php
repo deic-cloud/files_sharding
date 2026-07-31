@@ -244,6 +244,49 @@ class InternalController extends Controller {
 	}
 
 	/**
+	 * Receive a password hash propagated from a user's silo (see
+	 * PasswordChangedListener) and store it locally so this node can password-verify
+	 * the user — e.g. on the master when WAYF is down. Writes oc_users directly:
+	 * setPassword() would re-hash to a different value, userManager->createUser()
+	 * refuses a uid already claimed by the SAML backend, and a direct write doesn't
+	 * re-dispatch PasswordUpdatedEvent (so no propagation loop). Creates the
+	 * Database-backed row if the user only exists in the SAML backend here.
+	 */
+	#[PublicPage]
+	#[NoCSRFRequired]
+	public function setPasswordHash(string $userId): JSONResponse {
+		if ($err = $this->checkSecret()) return $err;
+		$hash = (string)$this->request->getParam('hash', '');
+		if ($hash === '') {
+			return new JSONResponse(['message' => 'hash required'], 400);
+		}
+
+		$qb = $this->db->getQueryBuilder();
+		$qb->select('uid')->from('users')
+			->where($qb->expr()->eq('uid', $qb->createNamedParameter($userId)));
+		$cursor = $qb->executeQuery();
+		$exists = $cursor->fetch() !== false;
+		$cursor->closeCursor();
+
+		if ($exists) {
+			$qb = $this->db->getQueryBuilder();
+			$qb->update('users')
+				->set('password', $qb->createNamedParameter($hash))
+				->where($qb->expr()->eq('uid', $qb->createNamedParameter($userId)));
+			$qb->executeStatement();
+		} else {
+			$qb = $this->db->getQueryBuilder();
+			$qb->insert('users')->values([
+				'uid'       => $qb->createNamedParameter($userId),
+				'uid_lower' => $qb->createNamedParameter(mb_strtolower($userId)),
+				'password'  => $qb->createNamedParameter($hash),
+			]);
+			$qb->executeStatement();
+		}
+		return new JSONResponse(['success' => true]);
+	}
+
+	/**
 	 * Delete a user on this silo.
 	 * Called by the master after the user has been deleted on the master side.
 	 */
