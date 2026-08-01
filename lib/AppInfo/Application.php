@@ -18,6 +18,7 @@ use OCA\FilesSharding\Listener\SudoScriptListener;
 use OCA\FilesSharding\Listener\SyncExternalSharesListener;
 use OCA\FilesSharding\Listener\UserChangedListener;
 use OCA\FilesSharding\Listener\UserDeletedListener;
+use OCA\FilesSharding\Middleware\AdminIpMiddleware;
 use OCA\FilesSharding\Middleware\OcmShareReceivedMiddleware;
 use OCA\FilesSharding\Middleware\RedirectMiddleware;
 use OCA\FilesSharding\Middleware\SudoPasswordMiddleware;
@@ -59,6 +60,7 @@ class Application extends App implements IBootstrap {
 		$context->registerMiddleware(\OCA\FilesSharding\Middleware\LogoutRedirectMiddleware::class, true);
 		$context->registerMiddleware(OcmShareReceivedMiddleware::class, true);
 		$context->registerMiddleware(SudoPasswordMiddleware::class, true);
+		$context->registerMiddleware(AdminIpMiddleware::class, true);
 		$context->registerEventListener(BeforeTemplateRenderedEvent::class, SudoScriptListener::class);
 		$context->registerEventListener(BeforeLoginTemplateRenderedEvent::class, SudoScriptListener::class);
 	}
