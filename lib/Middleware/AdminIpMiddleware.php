@@ -75,9 +75,10 @@ class AdminIpMiddleware extends Middleware {
 		if ($ip === '127.0.0.1' || $ip === '::1') {
 			return true;
 		}
-		foreach (explode(',', $adminips) as $prefix) {
-			$prefix = trim($prefix);
-			if ($prefix !== '' && str_starts_with($ip, $prefix)) {
+		// Split on commas AND whitespace, so the same ADMIN_IPS value works here and
+		// in the phpMyAdmin .htaccess 'Require ip' line (which is space-separated).
+		foreach (preg_split('/[\s,]+/', $adminips, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $prefix) {
+			if (str_starts_with($ip, $prefix)) {
 				return true;
 			}
 		}
