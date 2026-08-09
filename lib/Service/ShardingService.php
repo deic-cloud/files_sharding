@@ -99,15 +99,31 @@ class ShardingService {
 		string $site = '',
 		string $description = '',
 		string $userRegex = '',
+		?int   $id = null,
 	): Server {
-		$s = new Server();
+		// With an explicit ID (a stable per-silo id kept in the silo's TFTP rc.conf),
+		// upsert: re-registering the same silo after a reinstall updates its existing
+		// row rather than minting a duplicate. Reported free_gb/total_gb are left
+		// untouched (only the descriptive fields are (re)set).
+		$existing = false;
+		if ($id !== null) {
+			try {
+				$s = $this->serverMapper->findById($id);
+				$existing = true;
+			} catch (DoesNotExistException) {
+				$s = new Server();
+				$s->setId($id);
+			}
+		} else {
+			$s = new Server();
+		}
 		$s->setUrl(rtrim($url, '/'));
 		$s->setInternalUrl(rtrim($internalUrl, '/'));
 		$s->setX509Dn($x509Dn);
 		$s->setSite($site);
 		$s->setDescription($description);
 		$s->setUserRegex($userRegex);
-		$server = $this->serverMapper->insert($s);
+		$server = $existing ? $this->serverMapper->update($s) : $this->serverMapper->insert($s);
 		$this->trustServer($url);
 		return $server;
 	}
