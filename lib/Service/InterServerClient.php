@@ -15,7 +15,11 @@ use Psr\Log\LoggerInterface;
  * 'files_sharding_shared_secret'. The secret is sent as the
  * Authorization header: "Bearer <secret>".
  *
- * For container/dev testing set 'files_sharding_verify_ssl' => false.
+ * TLS is verified PER TARGET: a call to a public hostname is verified normally; a
+ * call to a private/backend IP (10/8, 172.16/12, 192.168/16) is NOT — those never
+ * match a public hostname cert and travel our trusted, firewalled backend network
+ * with shared-secret auth. Setting 'files_sharding_verify_ssl' => false forces
+ * verification off everywhere (self-signed dev/container/pod certs on hostnames).
  */
 class InterServerClient {
 	private string $secret;
@@ -28,6 +32,28 @@ class InterServerClient {
 	) {
 		$this->secret    = (string)$config->getSystemValue('files_sharding_shared_secret', '');
 		$this->verifySsl = (bool)$config->getSystemValue('files_sharding_verify_ssl', true);
+	}
+
+	/**
+	 * Whether to verify the TLS cert for a call to $baseUrl. Verify by default, but
+	 * NOT for a private/backend IP target (10/8, 172.16/12, 192.168/16, other reserved
+	 * ranges): those are on the trusted, firewalled backend network, addressed by IP,
+	 * so their cert can never match a public hostname — and needn't (shared-secret
+	 * authed). A public hostname/IP is always verified. The global
+	 * 'files_sharding_verify_ssl' => false forces it off everywhere.
+	 */
+	private function verifyFor(string $baseUrl): bool {
+		if (!$this->verifySsl) {
+			return false;
+		}
+		$host = (string)parse_url($baseUrl, PHP_URL_HOST);
+		if ($host !== ''
+			&& filter_var($host, FILTER_VALIDATE_IP) !== false
+			&& filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+			// Target is a private/reserved IP → trusted backend → skip verification.
+			return false;
+		}
+		return true;
 	}
 
 	/**
@@ -65,7 +91,7 @@ class InterServerClient {
 				'Authorization' => 'Bearer ' . $this->secret,
 				'Accept'        => 'application/json',
 			],
-			'verify'  => $this->verifySsl,
+			'verify'  => $this->verifyFor($baseUrl),
 			'timeout' => 10,
 		];
 
@@ -102,7 +128,7 @@ class InterServerClient {
 				'Authorization' => 'Bearer ' . $this->secret,
 				'Accept'        => 'application/json',
 			],
-			'verify'  => $this->verifySsl,
+			'verify'  => $this->verifyFor($baseUrl),
 			'timeout' => 10,
 		];
 
@@ -139,7 +165,7 @@ class InterServerClient {
 				'OCS-APIREQUEST'  => 'true',
 				'Accept'          => 'application/json',
 			],
-			'verify'  => $this->verifySsl,
+			'verify'  => $this->verifyFor($baseUrl),
 			'timeout' => 10,
 		];
 
