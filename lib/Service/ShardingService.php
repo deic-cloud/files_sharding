@@ -82,6 +82,25 @@ class ShardingService {
 		return $internal !== '' ? $internal : $server->getUrl();
 	}
 
+	/**
+	 * True if $server is THIS node's own registry row — compares the row's public
+	 * URL authority (host:port) to overwrite.cli.url, the same match rule isMaster()
+	 * uses. Lets all-servers push/fan-out loops skip self: the local node already has
+	 * the authoritative copy, so calling itself is a redundant (and slower) round-trip.
+	 */
+	public function isSelf(Server $server): bool {
+		$ownUrl = rtrim((string)$this->config->getSystemValue('overwrite.cli.url', ''), '/');
+		if ($ownUrl === '') {
+			return false;
+		}
+		$authority = static function (string $url): string {
+			$p = parse_url($url);
+			return strtolower(($p['host'] ?? '') . ':' . ($p['port'] ?? ''));
+		};
+		$own = $authority($ownUrl);
+		return $own !== ':' && $own === $authority($server->getUrl());
+	}
+
 	/** @return Server[] */
 	public function getAllServers(): array {
 		return $this->serverMapper->findAll();
