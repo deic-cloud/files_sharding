@@ -23,7 +23,7 @@ class PostLogoutListener implements IEventListener {
 			return;
 		}
 
-		// Only act on silos — the master keeps its own login page after logout.
+		// Only act on silos — the master handles its own logout.
 		if ($this->shardingService->isMaster()) {
 			return;
 		}
@@ -33,6 +33,12 @@ class PostLogoutListener implements IEventListener {
 			return;
 		}
 
-		$this->redirectState->set(rtrim($masterUrl, '/') . '/index.php/login');
+		// Send the browser to the master's LOGOUT endpoint (which ends the master
+		// session server-side, then lands on the front page) — NOT its login page.
+		// This listener fires on a real logout (UserLoggedOutEvent) and its
+		// redirectState is applied by RedirectMiddleware AFTER LogoutRedirectMiddleware,
+		// so it is the authoritative target; pointing it at /login left the master
+		// session alive and any hop there re-issued a login token → re-login loop.
+		$this->redirectState->set(rtrim($masterUrl, '/') . '/index.php/apps/files_sharding/logout');
 	}
 }
