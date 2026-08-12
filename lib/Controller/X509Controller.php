@@ -45,21 +45,14 @@ class X509Controller extends Controller {
 		}
 		$trustedUser = trim($this->appConfig->getValueString('user_pods', 'trustedUser', ''))
 			?: trim($this->config->getSystemValue('vlantrusteduser', ''));
-		// The trusted caller (e.g. 'cloud', which runs a batch-server POD on the
-		// user-pod VLAN — e.g. 10.2.24.9 — and authenticates via its X.509 client
-		// cert) may sit on EITHER trusted internal net: the pod VLAN (uservlannet,
-		// 10.2., where the batch pod runs) or the infra net (trustednet, 10.0.).
-		// The X.509 cert is the actual authorisation; this net check is only a
-		// location belt-and-suspenders, so accept both.
+		// The trusted caller ('cloud') runs a batch-server POD on the user-pod VLAN
+		// (e.g. 10.2.24.9) and authenticates via its X.509 client cert. X.509 auth
+		// is only ever expected from the pod VLAN (uservlannet, 10.2.): inter-server
+		// trust on this system is the shared secret, NOT X.509, so there is no reason
+		// to accept X.509-mediated impersonation from the infra net (trustednet, 10.0.).
+		$net = trim($this->config->getSystemValue('uservlannet', ''));
 		$ip = $this->request->getRemoteAddress();
-		$onTrustedNet = $ip === '127.0.0.1' || $ip === '::1';
-		foreach ([$this->config->getSystemValue('uservlannet', ''), $this->config->getSystemValue('trustednet', '')] as $n) {
-			$n = trim((string)$n);
-			if ($n !== '' && str_starts_with($ip, $n)) {
-				$onTrustedNet = true;
-				break;
-			}
-		}
+		$onTrustedNet = ($net !== '' && str_starts_with($ip, $net)) || $ip === '127.0.0.1' || $ip === '::1';
 		if ($current !== '' && $current === $trustedUser && $onTrustedNet) {
 			return $user;
 		}
