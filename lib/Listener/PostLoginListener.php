@@ -54,7 +54,11 @@ class PostLoginListener implements IEventListener {
 		}
 
 		$token = $this->tokenService->issue($userId);
-		$url   = rtrim($redirectTo, '/') . '/apps/files_sharding/login'
+		// Use the explicit /index.php/ front-controller form, not the clean-URL
+		// form: some silo web servers (Apache with NC's clean-URL rewrite) drop
+		// the query string on /apps/… but preserve it on /index.php/apps/… — and
+		// without token+user the silo exchange fails with "Missing token or user".
+		$url   = rtrim($redirectTo, '/') . '/index.php/apps/files_sharding/login'
 			. '?token=' . urlencode($token)
 			. '&user='  . urlencode($userId);
 

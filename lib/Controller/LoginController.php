@@ -118,7 +118,9 @@ class LoginController extends Controller {
 		}
 
 		$token = $this->tokenService->issue($userId);
-		$url   = rtrim($silo, '/') . '/apps/files_sharding/login'
+		// /index.php/ form on purpose — see PostLoginListener: some silo web
+		// servers drop the query string on the clean /apps/… URL.
+		$url   = rtrim($silo, '/') . '/index.php/apps/files_sharding/login'
 			. '?token=' . urlencode($token)
 			. '&user='  . urlencode($userId);
 		if ($safeTarget !== '') {

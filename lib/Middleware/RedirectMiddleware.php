@@ -96,7 +96,9 @@ class RedirectMiddleware extends Middleware {
 		// User needs to be on a different silo. Don't set the session flag so that
 		// if this redirect fails the next request will try again.
 		$token       = $this->tokenService->issue($userId);
-		$redirectUrl = rtrim($url, '/') . '/apps/files_sharding/login'
+		// /index.php/ form on purpose — see PostLoginListener: some silo web
+		// servers drop the query string on the clean /apps/… URL.
+		$redirectUrl = rtrim($url, '/') . '/index.php/apps/files_sharding/login'
 			. '?token=' . urlencode($token)
 			. '&user='  . urlencode($userId);
 
