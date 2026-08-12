@@ -56,11 +56,76 @@ class LoginController extends Controller {
 				$this->urlGenerator->linkToRouteAbsolute('core.login.showLoginForm')
 			);
 		}
-		$loginUrl = rtrim($masterUrl, '/') . '/index.php/login';
+		// Point the master's post-login redirect_url at the master's dispatch
+		// endpoint rather than the raw return path. redirect_url survives the
+		// SAML/WAYF round-trip, so once the master has authenticated the user it
+		// lands them on dispatch(), which issues a fresh token and bounces to the
+		// home silo. This does NOT depend on RedirectState surviving the separate
+		// SAML ACS request (it doesn't — it's request-scoped). The deep link rides
+		// along as ?target= so the silo can still land the user on the right page.
+		$dispatchPath = '/index.php/apps/files_sharding/dispatch';
 		if ($return !== '' && str_starts_with($return, '/') && !str_starts_with($return, '//')) {
-			$loginUrl .= '?redirect_url=' . urlencode($return);
+			$dispatchPath .= '?target=' . urlencode($return);
 		}
+		$loginUrl = rtrim($masterUrl, '/') . '/index.php/login'
+			. '?redirect_url=' . urlencode($dispatchPath);
 		return new RedirectResponse($loginUrl);
+	}
+
+	/**
+	 * Master-side post-login dispatcher. The browser lands here once authenticated
+	 * on the master — reached via redirect_url, which (unlike the request-scoped
+	 * RedirectState) survives the SAML/WAYF round-trip. Issues a one-time token for
+	 * the current user and bounces to their home silo's exchange endpoint; if the
+	 * user's home is the master, redirects to the deep link or default page.
+	 *
+	 * Being a LoginController method, RedirectMiddleware leaves it untouched
+	 * (both before/afterController early-return for this controller), so it can't
+	 * be caught in the very redirect loop it exists to resolve.
+	 *
+	 * @NoCSRFRequired
+	 * @NoAdminRequired
+	 */
+	public function dispatch(string $target = ''): RedirectResponse {
+		$safeTarget = ($target !== '' && str_starts_with($target, '/') && !str_starts_with($target, '//'))
+			? $target : '';
+
+		if (!$this->userSession->isLoggedIn()) {
+			// Not authenticated yet — send to the master login, threading this
+			// dispatch back as redirect_url so we return here after login.
+			$here = '/index.php/apps/files_sharding/dispatch'
+				. ($safeTarget !== '' ? '?target=' . urlencode($safeTarget) : '');
+			return new RedirectResponse(
+				$this->urlGenerator->linkToRouteAbsolute('core.login.showLoginForm')
+				. '?redirect_url=' . urlencode($here)
+			);
+		}
+		if (!$this->shardingService->isMaster()) {
+			// dispatch only makes sense on the master; elsewhere just go home.
+			return new RedirectResponse($safeTarget !== '' ? $safeTarget : $this->urlGenerator->linkToDefaultPageUrl());
+		}
+
+		$userId = $this->userSession->getUser()->getUID();
+		// Assign a silo if the user has none yet (mirrors PostLoginListener; needed
+		// on the SAML path, where the login event may not have produced a redirect).
+		if ($this->shardingService->getUserServer($userId) === null) {
+			$this->shardingService->autoAssign($userId);
+		}
+		$silo = $this->shardingService->getRedirectUrl($userId);
+		if ($silo === null) {
+			// Home is the master.
+			return new RedirectResponse($safeTarget !== '' ? $safeTarget : $this->urlGenerator->linkToDefaultPageUrl());
+		}
+
+		$token = $this->tokenService->issue($userId);
+		$url   = rtrim($silo, '/') . '/apps/files_sharding/login'
+			. '?token=' . urlencode($token)
+			. '&user='  . urlencode($userId);
+		if ($safeTarget !== '') {
+			$url .= '&return=' . urlencode($safeTarget);
+		}
+		$this->logger->warning("files_sharding: dispatch → {$url}");
+		return new RedirectResponse($url);
 	}
 
 	/**

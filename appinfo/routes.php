@@ -6,6 +6,9 @@ return [
 	'routes' => [
 		// Silo-side token exchange — browser lands here after master redirect
 		['name' => 'login#exchange',     'url' => '/login',        'verb' => 'GET'],
+		// Master-side post-login dispatcher — browser lands here (via redirect_url,
+		// which survives the SAML/WAYF round-trip) and gets a fresh token + silo bounce
+		['name' => 'login#dispatch',     'url' => '/dispatch',     'verb' => 'GET'],
 		// Redirect to master login (for users who don't know their silo password)
 		['name' => 'login#masterLogin',  'url' => '/master-login', 'verb' => 'GET'],
 		// Master-side logout — "Back to login" link clears session before showing login form
