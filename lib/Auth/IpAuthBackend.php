@@ -40,7 +40,8 @@ use Psr\Log\LoggerInterface;
  * a real Basic-auth password is treated as a normal login and yielded.
  */
 class IpAuthBackend extends ABackend implements IUserBackend, IApacheBackend {
-	private const CACHE_TTL = 60; // seconds
+	private const CACHE_TTL     = 60; // seconds (successful container-list fetch)
+	private const NEG_CACHE_TTL = 20; // seconds (fetch failed → don't hammer a dead service)
 
 	public function __construct(
 		private IRequest        $request,
@@ -108,6 +109,16 @@ class IpAuthBackend extends ABackend implements IUserBackend, IApacheBackend {
 		}
 		$onTrustedNet = ($net !== '' && str_starts_with($ip, $net)) || $ip === '127.0.0.1' || $ip === '::1';
 		if (!$onTrustedNet) {
+			return '';
+		}
+
+		// 1b. Bearer-authenticated requests are inter-server / API calls (they carry
+		//     the files_sharding shared secret), never IP-based pod access. Yield —
+		//     otherwise a silo's own server IP (which may fall inside 'trustednet',
+		//     e.g. 10.0.) triggers a container-service lookup on the master, and an
+		//     unresponsive service stalls the call past the caller's timeout (the
+		//     silo→master token validation then fails with "invalid or expired").
+		if (stripos(trim($this->request->getHeader('Authorization')), 'Bearer ') === 0) {
 			return '';
 		}
 
@@ -206,13 +217,18 @@ class IpAuthBackend extends ABackend implements IUserBackend, IApacheBackend {
 		try {
 			$body = (string)$this->clientService->newClient()->get($full, [
 				'verify' => false,
-				'timeout' => 10,
+				'timeout' => 3,
 				// The service is on a private management IP; opt past NC's SSRF block.
 				'nextcloud' => ['allow_local_address' => true],
 			])->getBody();
 		} catch (\Throwable $e) {
 			$this->logger->error('files_sharding: pod list fetch failed: ' . $e->getMessage(),
 				['app' => 'files_sharding', 'exception' => $e]);
+			// Negative-cache: an unresponsive container service must not stall every
+			// request nor get hammered. Retry only after NEG_CACHE_TTL.
+			if ($cache !== null) {
+				$cache->set('list', [], self::NEG_CACHE_TTL);
+			}
 			return [];
 		}
 		$lines = array_values(array_filter(explode("\n", trim($body)), static fn ($l) => $l !== ''));
