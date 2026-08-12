@@ -17,8 +17,8 @@ use Psr\Log\LoggerInterface;
 
 /**
  * IP-based trusted data access (the second trusted-access mechanism alongside
- * the X.509 relay in X509Backend). For requests originating on the trusted user
- * VLAN (system config 'trustednet', e.g. "10.2."), the source IP is mapped to
+ * the X.509 relay in X509Backend). For requests originating on the user-pod
+ * VLAN (system config 'uservlannet', e.g. "10.2."), the source IP is mapped to
  * the owner of the container running there, and the request is authenticated as
  * that owner — so a user's own pod reaches that user's files without a password.
  *
@@ -33,7 +33,9 @@ use Psr\Log\LoggerInterface;
  * getContainersPassword, trustedUser — the historical location, kept there to
  * avoid bloating config.php). We read those appconfig rows directly — a data
  * read, not a code dependency on the user_pods app (absent rows → inactive).
- * Only 'trustednet' (the VLAN prefix) stays a config.php system value.
+ * Only 'uservlannet' (the pod VLAN prefix) stays a config.php system value.
+ * (Distinct from 'trustednet' = the trusted *infra* net, whose inter-server
+ * trust is the shared secret on this system, not IP — see X509Controller.)
  *
  * Precedence (enforced by yielding): X.509 relay (SSL-CLIENT-S-DN present) wins,
  * then this IP mechanism, then normal password/session auth. A request carrying
@@ -99,10 +101,13 @@ class IpAuthBackend extends ABackend implements IUserBackend, IApacheBackend {
 	 * does not apply / does not resolve to an existing account.
 	 */
 	private function resolveUser(): string {
-		// 1. Must originate on the trusted VLAN (or loopback). getRemoteAddress()
+		// 1. Must originate on the user-pod VLAN (or loopback). getRemoteAddress()
 		//    honours trusted_proxies if one is ever put in front; today it is the
-		//    raw peer address.
-		$net = trim($this->config->getSystemValue('trustednet', ''));
+		//    raw peer address. This is 'uservlannet' (the pod net, e.g. 10.2.), NOT
+		//    'trustednet' (the trusted *infra* net, e.g. 10.0. — inter-server and
+		//    service traffic, whose trust is the shared secret, not IP). Pod
+		//    IP→owner resolution must only fire for genuine pod source IPs.
+		$net = trim($this->config->getSystemValue('uservlannet', ''));
 		$ip = $this->request->getRemoteAddress();
 		if ($ip === '') {
 			return '';
@@ -112,12 +117,12 @@ class IpAuthBackend extends ABackend implements IUserBackend, IApacheBackend {
 			return '';
 		}
 
-		// 1b. Bearer-authenticated requests are inter-server / API calls (they carry
-		//     the files_sharding shared secret), never IP-based pod access. Yield —
-		//     otherwise a silo's own server IP (which may fall inside 'trustednet',
-		//     e.g. 10.0.) triggers a container-service lookup on the master, and an
-		//     unresponsive service stalls the call past the caller's timeout (the
-		//     silo→master token validation then fails with "invalid or expired").
+		// 1b. Belt-and-suspenders: Bearer-authenticated requests are inter-server /
+		//     API calls (they carry the files_sharding shared secret), never IP-based
+		//     pod access — yield. With the gate above correctly on the pod VLAN
+		//     (uservlannet), 10.0. inter-server traffic no longer reaches here; this
+		//     just ensures a pod that ever presented a Bearer token can't get IP
+		//     auto-auth either.
 		if (stripos(trim($this->request->getHeader('Authorization')), 'Bearer ') === 0) {
 			return '';
 		}
