@@ -182,26 +182,41 @@ class IpAuthBackend extends ABackend implements IUserBackend, IApacheBackend {
 		return [trim($u), $p];
 	}
 
-	/** Owner (NC uid) of the container whose pod IP matches $ip, or ''. */
+	/** Owner (NC uid) of the container whose pod IP matches $ip, or ''. Cached per IP. */
 	private function ownerForIp(string $ip): string {
-		foreach ($this->containerList() as $line) {
-			// pod_name|container|image|pod_ip|node_ip|owner|age|status|ssh_port|ssh_user|https_port|uri
-			$cols = explode('|', $line);
-			if (count($cols) < 6) {
-				continue;
-			}
-			if (trim($cols[3]) === $ip && trim($cols[5]) !== '') {
-				return trim($cols[5]);
+		$cache = $this->cacheFactory->isAvailable() ? $this->cacheFactory->createLocal('files_sharding_podips') : null;
+		if ($cache !== null) {
+			$cached = $cache->get('owner:' . $ip);
+			if (is_string($cached)) {
+				return $cached;
 			}
 		}
-		return '';
+		$owner = '';
+		foreach ($this->fetchContainers($ip) as $line) {
+			// pod_name|container|image|pod_ip|node_ip|owner|age|status|ssh_port|ssh_user|https_port|uri
+			$cols = explode('|', $line);
+			if (count($cols) >= 6 && trim($cols[3]) === $ip && trim($cols[5]) !== '') {
+				$owner = trim($cols[5]);
+				break;
+			}
+		}
+		if ($cache !== null) {
+			// Cache the resolved owner (or the miss/failure = '') so a slow container
+			// service is hit at most once per IP per TTL, never on every request.
+			$cache->set('owner:' . $ip, $owner, $owner !== '' ? self::CACHE_TTL : self::NEG_CACHE_TTL);
+		}
+		return $owner;
 	}
 
 	/**
-	 * Container table lines from the external container service, cached briefly.
+	 * Container table lines from the external container service, scoped to a single
+	 * pod IP via '&pod_ip='. When the service honours that filter it returns just
+	 * the matching row(s) in ~2s instead of enumerating every container (~15s); if
+	 * it ignores the filter it returns the whole table and ownerForIp() still matches
+	 * $ip in it. 'fields=no' suppresses the header row.
 	 * @return string[]
 	 */
-	private function containerList(): array {
+	private function fetchContainers(string $podIp): array {
 		// Host + password live in user_pods appconfig (podManagementIP with the
 		// legacy 'privateIP' fallback; getContainersPassword).
 		$host = trim($this->appConfig->getValueString('user_pods', 'podManagementIP', ''))
@@ -209,37 +224,24 @@ class IpAuthBackend extends ABackend implements IUserBackend, IApacheBackend {
 		if ($host === '') {
 			return [];
 		}
-		$cache = $this->cacheFactory->isAvailable() ? $this->cacheFactory->createLocal('files_sharding_podips') : null;
-		if ($cache !== null) {
-			$cached = $cache->get('list');
-			if (is_array($cached)) {
-				return $cached;
-			}
-		}
 		$password = trim($this->appConfig->getValueString('user_pods', 'getContainersPassword', ''));
-		$full = 'http://' . $host . '/get_containers.php?fields=no'
-			. ($password !== '' ? '&password=' . rawurlencode($password) : '');
+		$url = 'http://' . $host . '/get_containers.php?fields=no'
+			. ($password !== '' ? '&password=' . rawurlencode($password) : '')
+			. '&pod_ip=' . rawurlencode($podIp);
 		try {
-			$body = (string)$this->clientService->newClient()->get($full, [
+			$body = (string)$this->clientService->newClient()->get($url, [
 				'verify' => false,
-				'timeout' => 3,
+				// Comfortably above the filtered ~2s response; the whole call is
+				// hit at most once per IP per TTL thanks to the per-IP cache above.
+				'timeout' => 8,
 				// The service is on a private management IP; opt past NC's SSRF block.
 				'nextcloud' => ['allow_local_address' => true],
 			])->getBody();
 		} catch (\Throwable $e) {
-			$this->logger->error('files_sharding: pod list fetch failed: ' . $e->getMessage(),
+			$this->logger->error('files_sharding: pod lookup failed: ' . $e->getMessage(),
 				['app' => 'files_sharding', 'exception' => $e]);
-			// Negative-cache: an unresponsive container service must not stall every
-			// request nor get hammered. Retry only after NEG_CACHE_TTL.
-			if ($cache !== null) {
-				$cache->set('list', [], self::NEG_CACHE_TTL);
-			}
 			return [];
 		}
-		$lines = array_values(array_filter(explode("\n", trim($body)), static fn ($l) => $l !== ''));
-		if ($cache !== null) {
-			$cache->set('list', $lines, self::CACHE_TTL);
-		}
-		return $lines;
+		return array_values(array_filter(explode("\n", trim($body)), static fn ($l) => $l !== ''));
 	}
 }
