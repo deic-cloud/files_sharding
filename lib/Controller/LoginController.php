@@ -145,7 +145,47 @@ class LoginController extends Controller {
 		if ($this->userSession->isLoggedIn()) {
 			$this->userSession->logout();
 		}
+		$this->clearExternalSessionCookies();
 		return new RedirectResponse($this->urlGenerator->getAbsoluteURL('/'));
+	}
+
+	/**
+	 * Expire session cookies set by an EXTERNAL SP alongside NC's own — e.g.
+	 * simpleSAMLphp's SimpleSAMLSessionID / SimpleSAMLAuthToken. Without this the
+	 * SP session outlives NC's logout and silently re-authenticates the user on the
+	 * next request (no WAYF round-trip), which re-triggers the silo redirect: a
+	 * logout → re-login loop. Cookie names come from the system config
+	 * 'files_sharding_logout_clear_cookies' (empty by default so the app stays
+	 * brand/deployment-neutral; the deployment names its SP cookies there). Each is
+	 * expired on path=/ across the domain forms an SP may scope to — leading-dot
+	 * host (simpleSAMLphp's default, e.g. .lab.sciencedata.dk) and host-only.
+	 * setcookie() writes headers directly, so it survives the RedirectResponse.
+	 */
+	private function clearExternalSessionCookies(): void {
+		$names = $this->config->getSystemValue('files_sharding_logout_clear_cookies', []);
+		if (!is_array($names) || $names === []) {
+			return;
+		}
+		$host    = $this->request->getServerHost();
+		$secure  = $this->request->getServerProtocol() === 'https';
+		$domains = array_values(array_unique(['.' . $host, $host, '']));
+		foreach ($names as $name) {
+			$name = trim((string)$name);
+			if ($name === '') {
+				continue;
+			}
+			unset($_COOKIE[$name]);
+			foreach ($domains as $domain) {
+				setcookie($name, '', [
+					'expires'  => time() - 3600,
+					'path'     => '/',
+					'domain'   => $domain,
+					'secure'   => $secure,
+					'httponly' => true,
+					'samesite' => 'Lax',
+				]);
+			}
+		}
 	}
 
 	/**
