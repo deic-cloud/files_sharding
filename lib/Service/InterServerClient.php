@@ -93,6 +93,13 @@ class InterServerClient {
 			],
 			'verify'  => $this->verifyFor($baseUrl),
 			'timeout' => 10,
+			// Inter-server calls target trusted registered nodes by their
+			// internal_url — usually a private IP (10.x). NC's IClient blocks
+			// local/private hosts by default (LocalServerException), silently
+			// turning every call into null (e.g. token validation → "invalid or
+			// expired"). Allow it for these trusted calls; verifyFor() already
+			// skips TLS verification for the same private targets.
+			'nextcloud' => ['allow_local_address' => true],
 		];
 
 		try {
@@ -130,6 +137,13 @@ class InterServerClient {
 			],
 			'verify'  => $this->verifyFor($baseUrl),
 			'timeout' => 10,
+			// Inter-server calls target trusted registered nodes by their
+			// internal_url — usually a private IP (10.x). NC's IClient blocks
+			// local/private hosts by default (LocalServerException), silently
+			// turning every call into null (e.g. token validation → "invalid or
+			// expired"). Allow it for these trusted calls; verifyFor() already
+			// skips TLS verification for the same private targets.
+			'nextcloud' => ['allow_local_address' => true],
 		];
 
 		try {
@@ -167,6 +181,13 @@ class InterServerClient {
 			],
 			'verify'  => $this->verifyFor($baseUrl),
 			'timeout' => 10,
+			// Inter-server calls target trusted registered nodes by their
+			// internal_url — usually a private IP (10.x). NC's IClient blocks
+			// local/private hosts by default (LocalServerException), silently
+			// turning every call into null (e.g. token validation → "invalid or
+			// expired"). Allow it for these trusted calls; verifyFor() already
+			// skips TLS verification for the same private targets.
+			'nextcloud' => ['allow_local_address' => true],
 		];
 
 		try {
