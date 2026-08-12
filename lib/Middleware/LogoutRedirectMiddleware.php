@@ -21,12 +21,14 @@ use OCP\IRequest;
  * cross-silo). Core only clears the local session; without this, the master
  * session survives and any hop back to it silently re-issues a login token.
  *
- * On logout we expire every cookie the browser presented — these are exactly
- * this user's session/passphrase/remember-me cookies for the shared domain
- * (each node's session cookie is named after its instanceid). Cookies are
- * not port-scoped, so on a shared hostname this reaches every node; with
- * per-node hostnames on a shared domain it needs 'cookie_domain' in
- * config.php (see README). Then we land the user on the master login page.
+ * On logout we expire every cookie the browser presented — this user's
+ * session/passphrase/remember-me cookies (each node's session cookie is named
+ * after its instanceid). Cookies are not port-scoped, so on a shared hostname
+ * this reaches every node; with per-node hostnames it only reaches siblings on
+ * the shared domain if 'cookie_domain' is set (see README) — so we do NOT rely
+ * on it for the master. Instead the silo hands off to the master's own logout
+ * endpoint, which ends the master session server-side. Setting 'cookie_domain'
+ * additionally clears any sibling-silo sessions in one shot.
  */
 class LogoutRedirectMiddleware extends Middleware {
 	public function __construct(
@@ -50,7 +52,17 @@ class LogoutRedirectMiddleware extends Middleware {
 		if ($master === '') {
 			return $response;
 		}
-		return new RedirectResponse($master . '/index.php/login');
+		// Hand off to the master's LOGOUT (not its login): the master session must
+		// be ended SERVER-SIDE. The cookie-clearing above only reaches the master
+		// when session cookies live on the shared domain (cookie_domain set); with
+		// per-node hostnames (lab.sciencedata.dk vs siloN.sciencedata.dk) it does
+		// NOT, so the master session would survive and the master would re-issue a
+		// login token on arrival — a logout→login→exchange RE-LOGIN LOOP. The
+		// master-side files_sharding logout (LoginController::logout) calls
+		// userSession->logout() then lands on the master login, robust regardless
+		// of cookie scoping. (files_sharding's own LoginController is not
+		// \OC\Core\Controller\LoginController, so this middleware won't re-fire.)
+		return new RedirectResponse($master . '/index.php/apps/files_sharding/logout');
 	}
 
 	/**
