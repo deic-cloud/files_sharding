@@ -131,9 +131,12 @@ class LoginController extends Controller {
 	}
 
 	/**
-	 * Logs the current user out and redirects to the login page.
-	 * Linked to from the silo's error page so that clicking "Back to login"
-	 * clears the master session before showing the login form again.
+	 * Ends the current (master) session and lands the user on the public front
+	 * page — the target of the silo→master single sign-out handoff
+	 * (LogoutRedirectMiddleware) and of the "Back to login" link on the silo error
+	 * page. Clearing the master session here is what stops the master re-issuing a
+	 * login token to a just-logged-out browser; the front page then offers login
+	 * again for anyone who wants back in.
 	 *
 	 * @NoCSRFRequired
 	 * @PublicPage
@@ -142,7 +145,7 @@ class LoginController extends Controller {
 		if ($this->userSession->isLoggedIn()) {
 			$this->userSession->logout();
 		}
-		return new RedirectResponse($this->urlGenerator->linkToRouteAbsolute('core.login.showLoginForm'));
+		return new RedirectResponse($this->urlGenerator->getAbsoluteURL('/'));
 	}
 
 	/**
