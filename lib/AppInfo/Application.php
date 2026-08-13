@@ -9,6 +9,7 @@ use OCA\FederatedFileSharing\Events\FederatedShareAddedEvent;
 use OCA\FilesSharding\Auth\IpAuthBackend;
 use OCA\FilesSharding\Auth\X509Backend;
 use OCA\FilesSharding\Listener\CspListener;
+use OCA\FilesSharding\Listener\FederatedCloudIdListener;
 use OCA\FilesSharding\Listener\PostLoginListener;
 use OCA\FilesSharding\Listener\PostLogoutListener;
 use OCA\FilesSharding\Listener\ProxyShareAcceptanceListener;
@@ -62,6 +63,7 @@ class Application extends App implements IBootstrap {
 		$context->registerMiddleware(SudoPasswordMiddleware::class, true);
 		$context->registerMiddleware(AdminIpMiddleware::class, true);
 		$context->registerEventListener(BeforeTemplateRenderedEvent::class, SudoScriptListener::class);
+		$context->registerEventListener(BeforeTemplateRenderedEvent::class, FederatedCloudIdListener::class);
 		$context->registerEventListener(BeforeLoginTemplateRenderedEvent::class, SudoScriptListener::class);
 	}
 
