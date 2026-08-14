@@ -12,7 +12,6 @@ use OCP\IURLGenerator;
 use OCP\IUserManager;
 use OCP\Notification\IManager as INotificationManager;
 use OCP\Share\IShare;
-use OCP\Snowflake\ISnowflakeGenerator;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -28,7 +27,6 @@ class ShareSyncService {
 		private ShardingService      $shardingService,
 		private InterServerClient    $client,
 		private IDBConnection        $db,
-		private ISnowflakeGenerator  $snowflake,
 		private INotificationManager $notificationManager,
 		private IURLGenerator        $urlGenerator,
 		private IUserManager         $userManager,
@@ -87,10 +85,15 @@ class ShareSyncService {
 			$tmpMountpoint = '{{TemporaryMountPointName#' . trim($name, '/') . '}}';
 
 			try {
-				$id = $this->snowflake->nextId();
+				// Explicit JS-safe id. This table's id has no cross-backend autoincrement
+				// (the sqlite schema is BIGINT NOT NULL, not AUTOINCREMENT), and the old
+				// snowflake ids exceed 2^53 — the browser rounds them on the accept action,
+				// so the share can't be found. Microseconds-since-epoch stays well under
+				// 2^53 (until ~year 2255) and is unique for sequential inserts.
+				$id = (int) floor(microtime(true) * 1000000);
 				$iq = $this->db->getQueryBuilder();
 				$iq->insert('share_external')
-				   ->setValue('id',              $iq->createNamedParameter($id))
+				   ->setValue('id',              $iq->createNamedParameter($id, IQueryBuilder::PARAM_INT))
 				   ->setValue('parent',          $iq->createNamedParameter('-1'))
 				   ->setValue('share_type',      $iq->createNamedParameter((int)($share['share_type'] ?? IShare::TYPE_USER), IQueryBuilder::PARAM_INT))
 				   ->setValue('remote',          $iq->createNamedParameter($remote))
