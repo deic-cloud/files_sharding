@@ -87,4 +87,17 @@ class MasterCloudIdManager implements ICloudIdManager {
 	public function unregisterCloudIdResolver(ICloudIdResolver $resolver): void {
 		$this->inner->unregisterCloudIdResolver($resolver);
 	}
+
+	/**
+	 * The concrete \OC\Federation\CloudIdManager exposes public methods beyond the
+	 * ICloudIdManager interface — notably getDisplayNameFromContact(), which CloudId
+	 * value objects call back into for lazy display-name resolution, plus the
+	 * UserChanged/CardUpdated event handlers. Forward any method we don't explicitly
+	 * override to the real manager so those callbacks keep working.
+	 *
+	 * @param array<mixed> $arguments
+	 */
+	public function __call(string $name, array $arguments): mixed {
+		return $this->inner->$name(...$arguments);
+	}
 }
