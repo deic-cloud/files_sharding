@@ -9,7 +9,6 @@ use OCA\FederatedFileSharing\Events\FederatedShareAddedEvent;
 use OCA\FilesSharding\Auth\IpAuthBackend;
 use OCA\FilesSharding\Auth\X509Backend;
 use OCA\FilesSharding\Listener\CspListener;
-use OCA\FilesSharding\Listener\FederatedCloudIdListener;
 use OCA\FilesSharding\Listener\PostLoginListener;
 use OCA\FilesSharding\Listener\PostLogoutListener;
 use OCA\FilesSharding\Listener\ProxyShareAcceptanceListener;
@@ -63,35 +62,14 @@ class Application extends App implements IBootstrap {
 		$context->registerMiddleware(SudoPasswordMiddleware::class, true);
 		$context->registerMiddleware(AdminIpMiddleware::class, true);
 		$context->registerEventListener(BeforeTemplateRenderedEvent::class, SudoScriptListener::class);
-		$context->registerEventListener(BeforeTemplateRenderedEvent::class, FederatedCloudIdListener::class);
 		$context->registerEventListener(BeforeLoginTemplateRenderedEvent::class, SudoScriptListener::class);
 	}
 
 	public function boot(IBootContext $context): void {
-		$server = $context->getServerContainer();
-
-		$userManager = $server->get(IUserManager::class);
+		$userManager = $context->getServerContainer()->get(IUserManager::class);
 		// X509Backend first so the X.509 relay takes precedence; the IP backend
 		// yields when a client-cert DN is present.
-		$userManager->registerBackend($server->get(X509Backend::class));
-		$userManager->registerBackend($server->get(IpAuthBackend::class));
-
-		// Re-bind the core cloud-id manager to our decorator so that, on silos, a
-		// local user's federated identity is master-tied (stable across silo moves).
-		// This MUST be done here (boot, against the SERVER container) and NOT via
-		// $context->registerService() in register(): app registerService() binds only
-		// into the app's OWN container, so core + federatedfilesharing consumers —
-		// which resolve ICloudIdManager from the server container — would never see it.
-		// SimpleContainer::registerService unsets-then-rebinds, so this overrides the
-		// existing binding cleanly. It is a DI-level override (public OCP\IContainer
-		// API), not a core patch — see MasterCloudIdManager. The inner (real) manager
-		// is fetched by its concrete class name, which the container autowires.
-		$server->registerService(\OCP\Federation\ICloudIdManager::class, function ($c): \OCA\FilesSharding\Federation\MasterCloudIdManager {
-			return new \OCA\FilesSharding\Federation\MasterCloudIdManager(
-				$c->get(\OC\Federation\CloudIdManager::class),
-				$c->get(\OCA\FilesSharding\Service\ShardingService::class),
-				$c->get(\OCP\IConfig::class),
-			);
-		});
+		$userManager->registerBackend($context->getServerContainer()->get(X509Backend::class));
+		$userManager->registerBackend($context->getServerContainer()->get(IpAuthBackend::class));
 	}
 }
