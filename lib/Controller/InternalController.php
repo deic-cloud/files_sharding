@@ -179,7 +179,36 @@ class InternalController extends Controller {
 		$shares  = $result->fetchAllAssociative();
 		$result->closeCursor();
 
+		// A share OWNED by one of our silo users but received here with the MASTER
+		// host as its remote — because MasterCloudIdManager master-ties the owner's
+		// federated ID — must be fetched from the owner's CURRENT silo, not from the
+		// master (which holds neither the file nor the share token). Point the
+		// recipient straight at that silo. Re-resolved on every sync, so it follows
+		// the owner across silo moves. (Genuine external remotes are left untouched;
+		// a truly-external recipient that can't do this resolution is handled by the
+		// master's content proxy instead.)
+		$masterAuth = $this->authority($this->shardingService->masterUrl());
+		foreach ($shares as &$share) {
+			if ($this->authority((string)($share['remote'] ?? '')) !== $masterAuth) {
+				continue;
+			}
+			$ownerServer = $this->shardingService->getUserServer((string)($share['owner'] ?? ''));
+			if ($ownerServer !== null && $this->authority($ownerServer->getUrl()) !== $masterAuth) {
+				$share['remote'] = rtrim($ownerServer->getUrl(), '/') . '/';
+			}
+		}
+		unset($share);
+
 		return new JSONResponse(['shares' => $shares]);
+	}
+
+	/** host:port authority of a URL (or bare host), lowercased, for same-node comparison. */
+	private function authority(string $url): string {
+		$p = parse_url($url);
+		if (!isset($p['host']) && $url !== '') {
+			$p = parse_url('https://' . ltrim($url, '/'));
+		}
+		return strtolower(($p['host'] ?? '') . ':' . ($p['port'] ?? ''));
 	}
 
 	/**
