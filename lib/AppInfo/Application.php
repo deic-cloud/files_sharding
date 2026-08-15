@@ -9,6 +9,7 @@ use OCA\FederatedFileSharing\Events\FederatedShareAddedEvent;
 use OCA\FilesSharding\Auth\IpAuthBackend;
 use OCA\FilesSharding\Auth\X509Backend;
 use OCA\FilesSharding\Listener\CspListener;
+use OCA\FilesSharding\Listener\ExternalShareScanWarmer;
 use OCA\FilesSharding\Listener\PostLoginListener;
 use OCA\FilesSharding\Listener\PostLogoutListener;
 use OCA\FilesSharding\Listener\ProxyShareAcceptanceListener;
@@ -56,6 +57,7 @@ class Application extends App implements IBootstrap {
 		$context->registerEventListener(PasswordUpdatedEvent::class, PasswordChangedListener::class);
 		$context->registerEventListener(SabrePluginAddEvent::class, SabrePluginListener::class);
 		$context->registerEventListener(FederatedShareAddedEvent::class, ProxyShareAcceptanceListener::class);
+		$context->registerEventListener(FederatedShareAddedEvent::class, ExternalShareScanWarmer::class);
 		$context->registerMiddleware(RedirectMiddleware::class, true);
 		$context->registerMiddleware(\OCA\FilesSharding\Middleware\LogoutRedirectMiddleware::class, true);
 		$context->registerMiddleware(OcmShareReceivedMiddleware::class, true);
