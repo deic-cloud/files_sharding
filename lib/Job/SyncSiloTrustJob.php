@@ -55,6 +55,16 @@ class SyncSiloTrustJob extends TimedJob {
 			$this->shardingService->trustServer($url);
 		}
 
-		$this->logger->debug('files_sharding: SyncSiloTrustJob: synced ' . count($data['servers']) . ' silo(s) into federation trust');
+		// The master is NOT in the silo registry, but master-routed federated
+		// shares arrive from the master's URL — and NC only auto-accepts from a
+		// server that is present in the trusted list (isTrustedServer is a plain
+		// membership check, status-agnostic). Without this, silos never trust the
+		// master and every master-routed share lands as a pending notification.
+		$masterPublicUrl = $this->shardingService->masterUrl();
+		if ($masterPublicUrl !== '') {
+			$this->shardingService->trustServer($masterPublicUrl);
+		}
+
+		$this->logger->debug('files_sharding: SyncSiloTrustJob: synced ' . count($data['servers']) . ' silo(s) + master into federation trust');
 	}
 }
