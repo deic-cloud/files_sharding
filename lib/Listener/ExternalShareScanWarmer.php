@@ -58,25 +58,30 @@ class ExternalShareScanWarmer implements IEventListener {
 			return;
 		}
 
-		// acceptShare fires this with the accepting user in the session. The
-		// auto-accept path (trusted-server / peer) has no session and already
-		// scans server-side, so there is nothing to warm here.
-		$user = $this->userSession->getUser();
-		if ($user === null) {
+		// acceptShare dispatches this for BOTH interactive accepts (a user session
+		// is present) AND trusted-server AUTO-accepts, which run server-to-server
+		// with NO session. Peer-silo shares auto-accept, so keying off the session
+		// (as before) missed exactly the case that needs warming. Key off the
+		// event's remote instead: the storage we build below is keyed by
+		// shared::md5(token@remote) and needs only the share row, not the
+		// recipient user, so no session is required.
+		$remote = $event->getRemote();
+		if ($remote === '') {
 			return;
 		}
-		$remote = $event->getRemote();
-		$userId = $user->getUID();
 
-		// Every accepted external share this user holds from this remote. The
-		// event carries only the remote, so we warm all of them (cheap: one
-		// shallow PROPFIND each, and accepts are rare).
 		$qb = $this->db->getQueryBuilder();
 		$qb->select('share_token', 'password', 'mountpoint', 'owner')
 			->from('share_external')
-			->where($qb->expr()->eq('user', $qb->createNamedParameter($userId)))
-			->andWhere($qb->expr()->eq('remote', $qb->createNamedParameter($remote)))
+			->where($qb->expr()->eq('remote', $qb->createNamedParameter($remote)))
 			->andWhere($qb->expr()->eq('accepted', $qb->createNamedParameter(IShare::STATUS_ACCEPTED, IQueryBuilder::PARAM_INT)));
+		// If a session IS present (interactive accept), scope to that user to keep
+		// the work minimal; auto-accept has no session and warms every just-
+		// accepted share from this remote (cheap — one shallow PROPFIND each).
+		$sessionUser = $this->userSession->getUser();
+		if ($sessionUser !== null) {
+			$qb->andWhere($qb->expr()->eq('user', $qb->createNamedParameter($sessionUser->getUID())));
+		}
 		$cursor = $qb->executeQuery();
 		$rows = $cursor->fetchAll();
 		$cursor->closeCursor();
