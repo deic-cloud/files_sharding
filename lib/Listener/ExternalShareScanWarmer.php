@@ -94,7 +94,11 @@ class ExternalShareScanWarmer implements IEventListener {
 				]);
 				// Shallow scan of the root: one PROPFIND, enough to cache the
 				// mount root's permissions/mtime/size that RemoteController reads.
+				$t0 = microtime(true);
 				$storage->getScanner()->scan('', IScanner::SCAN_SHALLOW);
+				$this->logger->info('files_sharding: ExternalShareScanWarmer: warmed ' . $remote
+					. ' (' . trim((string)$row['mountpoint'], '/') . ') in '
+					. (int)round((microtime(true) - $t0) * 1000) . 'ms');
 			} catch (\Throwable $e) {
 				$this->logger->warning('files_sharding: ExternalShareScanWarmer: could not warm '
 					. $remote . ': ' . $e->getMessage());
