@@ -412,6 +412,14 @@ class ShardingService {
 			if (!$ts->isTrustedServer($url)) {
 				$ts->addServer($url);
 			}
+			// Cluster nodes trust each other by design (they share the
+			// files_sharding secret). NC's per-pair shared-secret handshake isn't
+			// used on our auto-accept / OCM path and otherwise leaves the row at
+			// STATUS_PENDING, which looks broken during debugging. isTrustedServer
+			// is a membership check, so OK vs PENDING is cosmetic here — mark OK
+			// (also on already-trusted rows) so the trust table reads clean on a
+			// fresh install.
+			$ts->setServerStatus($url, \OCA\Federation\TrustedServers::STATUS_OK);
 		} catch (\Throwable $e) {
 			$this->logger->debug('files_sharding: could not auto-trust server (federation app missing?): ' . $e->getMessage());
 		}
