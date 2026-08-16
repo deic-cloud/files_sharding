@@ -51,18 +51,33 @@ class ShareSyncService {
 			return 0;
 		}
 
-		if (empty($data['shares'])) {
-			return 0;
+		// An EMPTY shares list is a valid authoritative state (the user has no
+		// federated shares on the master); we must still reconcile (prune stale
+		// local mirrors), so do NOT early-return. We only bail on a FETCH FAILURE
+		// (handled above), so a transient master outage never prunes.
+
+		// Authoritative set from the master, keyed remote(sans trailing slash)+remote_id.
+		$wanted = [];
+		foreach ($data['shares'] as $share) {
+			$r  = rtrim((string)($share['remote'] ?? ''), '/');
+			$ri = (string)($share['remote_id'] ?? '');
+			if ($r !== '' && $ri !== '') {
+				$wanted[$r . "\0" . $ri] = true;
+			}
 		}
 
+		// Existing local mirrors for this user (id needed for pruning).
 		$qb = $this->db->getQueryBuilder();
-		$qb->select('remote', 'remote_id')
+		$qb->select('id', 'remote', 'remote_id')
 		   ->from('share_external')
 		   ->where($qb->expr()->eq('user', $qb->createNamedParameter($userId)));
 		$cursor = $qb->executeQuery();
-		$existing = [];
+		$existing  = [];
+		$localRows = [];
 		while ($row = $cursor->fetch()) {
-			$existing[$row['remote'] . "\0" . $row['remote_id']] = true;
+			$key = rtrim((string)$row['remote'], '/') . "\0" . (string)$row['remote_id'];
+			$existing[$key] = true;
+			$localRows[]    = ['id' => (int)$row['id'], 'key' => $key];
 		}
 		$cursor->closeCursor();
 
@@ -78,7 +93,7 @@ class ShareSyncService {
 				continue;
 			}
 
-			if (isset($existing[$remote . "\0" . $remoteId])) {
+			if (isset($existing[rtrim($remote, '/') . "\0" . $remoteId])) {
 				continue;
 			}
 
@@ -118,10 +133,35 @@ class ShareSyncService {
 			}
 		}
 
-		if ($inserted > 0) {
+		// Prune local mirrors the master no longer has = the owner unshared them.
+		// This is the delete-propagation the add-only mirror never did: core OCM
+		// removes the master's oc_share_external on unshare; the silo catches up here
+		// on the next sync. Assumes every federated share the user has is
+		// master-mediated (true in the current model; revisit if silos ever receive
+		// direct external OCM shares the master doesn't know about).
+		$pruned = 0;
+		foreach ($localRows as $lr) {
+			if (isset($wanted[$lr['key']])) {
+				continue;
+			}
+			try {
+				$dq = $this->db->getQueryBuilder();
+				$dq->delete('share_external')
+				   ->where($dq->expr()->eq('id', $dq->createNamedParameter($lr['id'], IQueryBuilder::PARAM_INT)));
+				$dq->executeStatement();
+				$pruned++;
+			} catch (\Throwable $e) {
+				$this->logger->warning("files_sharding: ShareSyncService: failed to prune stale share {$lr['id']} for {$userId}: " . $e->getMessage());
+			}
+		}
+
+		if ($inserted > 0 || $pruned > 0) {
 			$user = $this->userManager->get($userId);
 			if ($user !== null) {
 				$this->eventDispatcher->dispatchTyped(new InvalidateMountCacheEvent($user));
+			}
+			if ($pruned > 0) {
+				$this->logger->info("files_sharding: ShareSyncService: pruned {$pruned} stale mirror(s) for {$userId}");
 			}
 		}
 
