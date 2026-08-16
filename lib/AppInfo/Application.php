@@ -13,6 +13,7 @@ use OCA\FilesSharding\Listener\ExternalShareScanWarmer;
 use OCA\FilesSharding\Listener\PostLoginListener;
 use OCA\FilesSharding\Listener\PostLogoutListener;
 use OCA\FilesSharding\Listener\ProxyShareAcceptanceListener;
+use OCA\FilesSharding\Listener\ShareCreatedListener;
 use OCA\FilesSharding\Listener\SabrePluginListener;
 use OCA\FilesSharding\Listener\PasswordChangedListener;
 use OCA\FilesSharding\Listener\SudoScriptListener;
@@ -31,6 +32,7 @@ use OCP\AppFramework\Http\Events\BeforeLoginTemplateRenderedEvent;
 use OCP\AppFramework\Http\Events\BeforeTemplateRenderedEvent;
 use OCP\IUserManager;
 use OCP\Security\CSP\AddContentSecurityPolicyEvent;
+use OCP\Share\Events\ShareCreatedEvent;
 use OCP\User\Events\PasswordUpdatedEvent;
 use OCP\User\Events\UserChangedEvent;
 use OCP\User\Events\UserDeletedEvent;
@@ -61,6 +63,13 @@ class Application extends App implements IBootstrap {
 		// returns real permissions on the next fetch instead of null (stock NC bug
 		// that otherwise drops the share from "Shared with you" until a reload).
 		$context->registerEventListener(FederatedShareAddedEvent::class, ExternalShareScanWarmer::class);
+		// Share-consistency (2026-08-16): informational notice on local shares + a
+		// notifier to render "X shared Y with you" (auto-accepted shares, action-less).
+		// Negative priority so this runs AFTER core's files_sharing notification
+		// listener (default 0) — we dismiss core's incoming_user_share, which must
+		// therefore already exist when we run.
+		$context->registerEventListener(ShareCreatedEvent::class, ShareCreatedListener::class, -100);
+		$context->registerNotifierService(\OCA\FilesSharding\Notification\Notifier::class);
 		$context->registerMiddleware(RedirectMiddleware::class, true);
 		$context->registerMiddleware(\OCA\FilesSharding\Middleware\LogoutRedirectMiddleware::class, true);
 		$context->registerMiddleware(OcmShareReceivedMiddleware::class, true);

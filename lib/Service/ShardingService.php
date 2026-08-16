@@ -425,6 +425,22 @@ class ShardingService {
 		}
 	}
 
+	/**
+	 * Is $url one of our cluster's servers (i.e. a trusted server)? Used to decide
+	 * whether a mirrored federated share should AUTO-ACCEPT (intra-cluster origin)
+	 * or stay PENDING for manual accept (external/untrusted origin). Federation app
+	 * absent → false, which is the safe default (share stays pending).
+	 */
+	public function isClusterServer(string $url): bool {
+		try {
+			/** @var \OCA\Federation\TrustedServers $ts */
+			$ts = $this->container->get(\OCA\Federation\TrustedServers::class);
+			return $ts->isTrustedServer(rtrim($url, '/'));
+		} catch (\Throwable) {
+			return false;
+		}
+	}
+
 	private function untrustServer(string $url): void {
 		try {
 			/** @var \OCA\Federation\TrustedServers $ts */

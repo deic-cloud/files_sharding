@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace OCA\FilesSharding\Service;
 
+use OCA\FederatedFileSharing\Events\FederatedShareAddedEvent;
 use OCP\DB\QueryBuilder\IQueryBuilder;
 use OCP\EventDispatcher\IEventDispatcher;
 use OCP\Files\Events\InvalidateMountCacheEvent;
@@ -97,7 +98,14 @@ class ShareSyncService {
 				continue;
 			}
 
-			$tmpMountpoint = '{{TemporaryMountPointName#' . trim($name, '/') . '}}';
+			// Intra-cluster origin (a trusted silo) → AUTO-ACCEPT + informational notice;
+			// external/untrusted origin → stay PENDING with accept/decline
+			// (Frederik 2026-08-16 share-consistency compromise).
+			$isCluster  = $this->shardingService->isClusterServer($remote);
+			$mountpoint = $isCluster
+				? $this->uniqueMountpoint($userId, $name)
+				: '{{TemporaryMountPointName#' . trim($name, '/') . '}}';
+			$accepted   = $isCluster ? IShare::STATUS_ACCEPTED : IShare::STATUS_PENDING;
 
 			try {
 				// Explicit JS-safe id. This table's id has no cross-backend autoincrement
@@ -118,16 +126,28 @@ class ShareSyncService {
 				   ->setValue('name',            $iq->createNamedParameter($name))
 				   ->setValue('owner',           $iq->createNamedParameter($owner))
 				   ->setValue('user',            $iq->createNamedParameter($userId))
-				   ->setValue('mountpoint',      $iq->createNamedParameter($tmpMountpoint))
-				   ->setValue('mountpoint_hash', $iq->createNamedParameter(md5($tmpMountpoint)))
-				   ->setValue('accepted',        $iq->createNamedParameter(IShare::STATUS_PENDING, IQueryBuilder::PARAM_INT));
+				   ->setValue('mountpoint',      $iq->createNamedParameter($mountpoint))
+				   ->setValue('mountpoint_hash', $iq->createNamedParameter(md5($mountpoint)))
+				   ->setValue('accepted',        $iq->createNamedParameter($accepted, IQueryBuilder::PARAM_INT));
 				$iq->executeStatement();
 				$inserted++;
 
 				// Build cloud ID: strip protocol+trailing slash so resolveCloudId() works in NC34
-				$remoteHost = preg_replace('#^https?://#', '', rtrim($remote, '/'));
+				$remoteHost   = preg_replace('#^https?://#', '', rtrim($remote, '/'));
 				$ownerCloudId = $owner . '@' . $remoteHost;
-				$this->notifyPendingShare($userId, (string)$id, $ownerCloudId, trim($name, '/'));
+
+				if ($isCluster) {
+					// Auto-accept: fire the same event External\Manager::acceptShare would,
+					// so ExternalShareScanWarmer warms the mount (no null-perms) and
+					// ProxyShareAcceptanceListener tells the owner it was accepted; then an
+					// informational, action-less notice.
+					// Dispatch with the exact stored remote (trailing slash and all) so the
+					// warmer's `WHERE remote = …` matches this row and scans it.
+					$this->eventDispatcher->dispatchTyped(new FederatedShareAddedEvent($remote));
+					$this->notifyShareReceived($userId, (string)$id, $owner, trim($name, '/'));
+				} else {
+					$this->notifyPendingShare($userId, (string)$id, $ownerCloudId, trim($name, '/'));
+				}
 			} catch (\Throwable $e) {
 				$this->logger->warning("files_sharding: ShareSyncService: failed to insert share for {$userId}: " . $e->getMessage());
 			}
@@ -189,5 +209,39 @@ class ShareSyncService {
 		$notification->addAction($accept);
 
 		$this->notificationManager->notify($notification);
+	}
+
+	/** Informational, action-less "X shared Y with you" notice for an auto-accepted share. */
+	private function notifyShareReceived(string $userId, string $shareId, string $sharer, string $name): void {
+		$notification = $this->notificationManager->createNotification();
+		$notification->setApp('files_sharding')
+			->setUser($userId)
+			->setDateTime(new \DateTime())
+			->setObject('remote_share', $shareId)
+			->setSubject('share_received', [$sharer, $name]);
+		$this->notificationManager->notify($notification);
+	}
+
+	/** A mountpoint ("/media") not already used by another of this user's mirrors; appends " (N)" on collision. */
+	private function uniqueMountpoint(string $userId, string $name): string {
+		$candidate = $name;
+		$i = 2;
+		while ($this->mountpointTaken($userId, $candidate)) {
+			$candidate = rtrim($name, '/') . ' (' . $i . ')';
+			$i++;
+		}
+		return $candidate;
+	}
+
+	private function mountpointTaken(string $userId, string $mp): bool {
+		$qb = $this->db->getQueryBuilder();
+		$qb->select('id')->from('share_external')
+		   ->where($qb->expr()->eq('user', $qb->createNamedParameter($userId)))
+		   ->andWhere($qb->expr()->eq('mountpoint_hash', $qb->createNamedParameter(md5($mp))))
+		   ->setMaxResults(1);
+		$c = $qb->executeQuery();
+		$taken = $c->fetch() !== false;
+		$c->closeCursor();
+		return $taken;
 	}
 }
