@@ -53,6 +53,9 @@ class Application extends App implements IBootstrap {
 		$context->registerEventListener(UserLoggedInWithCookieEvent::class, PostLoginListener::class);
 		$context->registerEventListener(UserLoggedInEvent::class, SyncExternalSharesListener::class);
 		$context->registerEventListener(UserLoggedInWithCookieEvent::class, SyncExternalSharesListener::class);
+		// Also sync on every Files page load so a plain reload deterministically
+		// reflects the user's current shares (closes the push-vs-reload race).
+		$context->registerEventListener(\OCA\Files\Event\LoadAdditionalScriptsEvent::class, SyncExternalSharesListener::class);
 		$context->registerEventListener(UserLoggedOutEvent::class, PostLogoutListener::class);
 		$context->registerEventListener(UserDeletedEvent::class, UserDeletedListener::class);
 		$context->registerEventListener(UserChangedEvent::class, UserChangedListener::class);
