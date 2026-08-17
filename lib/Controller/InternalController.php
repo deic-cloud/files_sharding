@@ -183,22 +183,12 @@ class InternalController extends Controller {
 		$result->closeCursor();
 
 		// (2) Group shares: expand the user's group memberships and include every
-		// group-share registry row (target_group set) for a group they belong to.
-		// This is computed on demand from the authoritative membership — the group
-		// share is ONE registry row, never fanned out per member. Join/leave are
-		// simply reflected here on the next resolve.
-		$gids = $this->shardingService->getUserGroupIds($userId);
-		if (!empty($gids)) {
-			$gq = $this->db->getQueryBuilder();
-			$gq->select('remote', 'remote_id', 'share_token', 'name', 'owner', 'share_type', 'password')
-			   ->from('share_external')
-			   ->where($gq->expr()->neq('target_group', $gq->createNamedParameter('')))
-			   ->andWhere($gq->expr()->in('target_group', $gq->createNamedParameter($gids, IQueryBuilder::PARAM_STR_ARRAY)));
-			$gres = $gq->executeQuery();
-			foreach ($gres->fetchAllAssociative() as $row) {
-				$shares[] = $row;
-			}
-			$gres->closeCursor();
+		// group share (dedicated registry table) for a group they belong to. Computed
+		// on demand from the authoritative membership — the group share is ONE registry
+		// row, never fanned out per member. Join/leave are reflected here on the next
+		// resolve.
+		foreach ($this->groupShareRegistry->resolveForGroups($this->shardingService->getUserGroupIds($userId)) as $row) {
+			$shares[] = $row;
 		}
 
 		return new JSONResponse(['shares' => $shares]);
