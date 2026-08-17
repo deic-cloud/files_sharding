@@ -9,6 +9,7 @@ use OCA\FilesSharding\Service\ShardingService;
 use OCP\Collaboration\Collaborators\ISearchPlugin;
 use OCP\Collaboration\Collaborators\ISearchResult;
 use OCP\Collaboration\Collaborators\SearchResultType;
+use OCP\IRequest;
 use OCP\IUserSession;
 use OCP\Share\IShare;
 use Psr\Log\LoggerInterface;
@@ -24,6 +25,12 @@ use Psr\Log\LoggerInterface;
  *
  * Residency is decided from the master's per-user silo_url (silos carry no
  * user→silo map of their own), so this works uniformly on master and silos.
+ *
+ * Cluster peers belong in the "Internal shares" box ONLY. The share dialog runs
+ * this plugin for BOTH boxes (both request TYPE_REMOTE), so we tell them apart by
+ * the requested share types: the Internal box always asks for TYPE_USER too, the
+ * External box (out-of-cluster federation) never does. We skip the External box
+ * so a cluster peer isn't offered a second, redundant way to be shared with.
  */
 class MasterUserSearch implements ISearchPlugin {
 	private string $currentUserId;
@@ -32,6 +39,7 @@ class MasterUserSearch implements ISearchPlugin {
 		private ShardingService  $shardingService,
 		private InterServerClient $client,
 		private LoggerInterface  $logger,
+		private IRequest         $request,
 		IUserSession             $userSession,
 	) {
 		$this->currentUserId = $userSession->getUser()?->getUID() ?? '';
@@ -41,6 +49,23 @@ class MasterUserSearch implements ISearchPlugin {
 		// Avoid duplicate work for offsets > 0 — master results are not paginated here.
 		if ($offset > 0) {
 			return false;
+		}
+
+		// Only feed the "Internal shares" box. It always requests TYPE_USER
+		// alongside the remote types; the "External shares" box (out-of-cluster
+		// federation) never does — and cluster peers must not appear there too.
+		$types = $this->request->getParam('shareType');
+		if (is_array($types)) {
+			$hasUser = false;
+			foreach ($types as $t) {
+				if ((int)$t === IShare::TYPE_USER) {
+					$hasUser = true;
+					break;
+				}
+			}
+			if (!$hasUser) {
+				return false;
+			}
 		}
 
 		$masterInternalUrl = $this->shardingService->masterInternalUrl();
