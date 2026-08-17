@@ -101,6 +101,36 @@ class ShardingService {
 		return $own !== ':' && $own === $authority($server->getUrl());
 	}
 
+	/** host:port of a URL, lowercased ('' host+port → ':'). */
+	private function authority(string $url): string {
+		$p = parse_url($url);
+		return strtolower(($p['host'] ?? '') . ':' . ($p['port'] ?? ''));
+	}
+
+	/** True if $url's authority (host:port) is THIS node's own (overwrite.cli.url). */
+	public function isThisNode(string $url): bool {
+		$ownUrl = rtrim((string)$this->config->getSystemValue('overwrite.cli.url', ''), '/');
+		if ($ownUrl === '' || $url === '') {
+			return false;
+		}
+		$own = $this->authority($ownUrl);
+		return $own !== ':' && $own === $this->authority($url);
+	}
+
+	/**
+	 * True if $userId's home silo is THIS node. An unknown assignment (no registry
+	 * row — always the case on a silo, which doesn't carry the user→silo map) is
+	 * treated as resident so we never strip a user the local backend legitimately
+	 * returned. Authoritative only where the map lives: the master.
+	 */
+	public function isResidentHere(string $userId): bool {
+		$s = $this->getUserServer($userId);
+		if ($s === null) {
+			return true;
+		}
+		return $this->isSelf($s);
+	}
+
 	/** @return Server[] */
 	public function getAllServers(): array {
 		return $this->serverMapper->findAll();
@@ -426,19 +456,51 @@ class ShardingService {
 	}
 
 	/**
-	 * Is $url one of our cluster's servers (i.e. a trusted server)? Used to decide
-	 * whether a mirrored federated share should AUTO-ACCEPT (intra-cluster origin)
-	 * or stay PENDING for manual accept (external/untrusted origin). Federation app
-	 * absent → false, which is the safe default (share stays pending).
+	 * Is $url one of OUR cluster's own servers (master or a sibling silo)? Decides
+	 * whether a mirrored federated share AUTO-ACCEPTS (intra-cluster origin →
+	 * seamless, shows under "Internal") or stays PENDING for manual accept
+	 * (external partner → real federation, shows under "External").
+	 *
+	 * The authoritative source is the cluster's own registry (files_sharding_servers),
+	 * which distinguishes a sibling silo from a merely trusted external partner —
+	 * a distinction oc_trusted_servers cannot make once we federate with Nextcloud
+	 * installs abroad (a funding requirement). The registry lives on the master.
+	 *
+	 * A silo carries no registry, so getAllServers() is empty there; every federated
+	 * share a silo receives today is master-mediated and thus intra-cluster, so we
+	 * fall back to trusted-server membership. REVISIT when external-partner federation
+	 * lands: the master must then tag exported shares cluster/external so a silo can
+	 * tell a partner's share from a sibling silo's without its own registry.
 	 */
 	public function isClusterServer(string $url): bool {
-		try {
-			/** @var \OCA\Federation\TrustedServers $ts */
-			$ts = $this->container->get(\OCA\Federation\TrustedServers::class);
-			return $ts->isTrustedServer(rtrim($url, '/'));
-		} catch (\Throwable) {
+		$target = $this->authority($url);
+		if ($target === ':') {
 			return false;
 		}
+		// The master is always a cluster node (covers silos, where the only
+		// intra-cluster remote a share carries is the master's own URL).
+		if ($this->authority($this->masterUrl()) === $target
+			|| $this->authority($this->masterInternalUrl()) === $target) {
+			return true;
+		}
+		$servers = $this->getAllServers();
+		foreach ($servers as $s) {
+			if ($this->authority($s->getUrl()) === $target
+				|| ($s->getInternalUrl() !== '' && $this->authority($s->getInternalUrl()) === $target)) {
+				return true;
+			}
+		}
+		// No registry (silo) → fall back to trusted-server membership.
+		if (count($servers) === 0) {
+			try {
+				/** @var \OCA\Federation\TrustedServers $ts */
+				$ts = $this->container->get(\OCA\Federation\TrustedServers::class);
+				return $ts->isTrustedServer(rtrim($url, '/'));
+			} catch (\Throwable) {
+				return false;
+			}
+		}
+		return false;
 	}
 
 	private function untrustServer(string $url): void {

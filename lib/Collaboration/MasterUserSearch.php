@@ -14,8 +14,16 @@ use OCP\Share\IShare;
 use Psr\Log\LoggerInterface;
 
 /**
- * Searches users on the master and returns them as federated (TYPE_REMOTE) share targets.
- * Only active on silos (isMaster() === false). On the master, all users are local.
+ * Searches users via the master directory and returns anyone whose home silo is
+ * NOT this node as a federated (TYPE_REMOTE) share target pointed at the master
+ * (the canonical @master identity). Runs on every node — including the master
+ * itself, which is a silo like any other: there it turns the master's local
+ * directory accounts for OTHER silos' users into federated targets, while the
+ * ResidentUserFilter strips the dead local duplicate. Net effect: one working
+ * entry per cluster peer, in the "Internal shares" box, identical everywhere.
+ *
+ * Residency is decided from the master's per-user silo_url (silos carry no
+ * user→silo map of their own), so this works uniformly on master and silos.
  */
 class MasterUserSearch implements ISearchPlugin {
 	private string $currentUserId;
@@ -30,10 +38,6 @@ class MasterUserSearch implements ISearchPlugin {
 	}
 
 	public function search($search, $limit, $offset, ISearchResult $searchResult): bool {
-		// Only run on silos; the master already searches local users natively.
-		if ($this->shardingService->isMaster()) {
-			return false;
-		}
 		// Avoid duplicate work for offsets > 0 — master results are not paginated here.
 		if ($offset > 0) {
 			return false;
@@ -67,8 +71,15 @@ class MasterUserSearch implements ISearchPlugin {
 			if ($userId === '') {
 				continue;
 			}
-			// Skip the current user — they are on this silo already.
+			// Skip the current user — they are on this node already.
 			if ($userId === $this->currentUserId) {
+				continue;
+			}
+			// Skip users whose home silo IS this node — the local user backend
+			// already returns them as a real local target; emitting a federated
+			// duplicate is exactly the double-listing we're removing. (On the
+			// master this is what keeps master-resident users local.)
+			if ($this->shardingService->isThisNode((string)($u['silo_url'] ?? ''))) {
 				continue;
 			}
 

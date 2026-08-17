@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace OCA\FilesSharding\Listener;
 
+use OCA\FilesSharding\Service\ShardingService;
 use OCP\EventDispatcher\Event;
 use OCP\EventDispatcher\IEventListener;
 use OCP\IConfig;
 use OCP\IUserManager;
 use OCP\Notification\IManager as INotificationManager;
 use OCP\Share\Events\ShareCreatedEvent;
+use OCP\Share\IManager as IShareManager;
 use OCP\Share\IShare;
 use Psr\Log\LoggerInterface;
 
@@ -29,6 +31,8 @@ class ShareCreatedListener implements IEventListener {
 		private INotificationManager $notificationManager,
 		private IUserManager         $userManager,
 		private IConfig              $config,
+		private ShardingService      $shardingService,
+		private IShareManager        $shareManager,
 		private LoggerInterface      $logger,
 	) {
 	}
@@ -41,14 +45,28 @@ class ShareCreatedListener implements IEventListener {
 		if ($share->getShareType() !== IShare::TYPE_USER) {
 			return; // only plain local user shares; federated ones are ShareSyncService's job
 		}
+
+		$recipient = (string)$share->getSharedWith();
+		if ($recipient === '') {
+			return;
+		}
+
+		// Convert safety net: a local share to a user whose home silo is NOT this
+		// node is a dead row — their storage lives elsewhere, so nothing arrives.
+		// Re-route it as a federated @master share, which actually delivers. This
+		// backs up ResidentUserFilter (which normally stops the dead local target
+		// from being offered at all) and covers non-search paths — exact-id picks
+		// and direct API calls. Only fires where residency is knowable (the master);
+		// on a silo isResidentHere() is always true, so this never triggers.
+		if (!$this->shardingService->isResidentHere($recipient)) {
+			$this->convertToFederated($share, $recipient);
+			return;
+		}
+
 		// Only when shares auto-accept (default). If manual accept is required
 		// (shareapi_auto_accept_share=no), leave core's accept/decline notification
 		// intact so the recipient can still accept — don't suppress or replace it.
 		if ($this->config->getAppValue('core', 'shareapi_auto_accept_share', 'yes') !== 'yes') {
-			return;
-		}
-		$recipient = (string)$share->getSharedWith();
-		if ($recipient === '') {
 			return;
 		}
 
@@ -77,6 +95,45 @@ class ShareCreatedListener implements IEventListener {
 			$this->notificationManager->markProcessed($dismiss);
 		} catch (\Throwable $e) {
 			$this->logger->warning('files_sharding: ShareCreatedListener: could not notify ' . $recipient . ': ' . $e->getMessage());
+		}
+	}
+
+	/**
+	 * Replace a dead local share to a non-resident user with a federated share to
+	 * their canonical @master identity. The master relays it (loopback OCM into its
+	 * own oc_share_external) and the recipient's silo mirrors + auto-accepts it via
+	 * ShareSyncService — the same path a normal cross-silo share takes.
+	 *
+	 * Re-entrancy: createShare() fires ShareCreatedEvent for a TYPE_REMOTE share,
+	 * which handle() ignores; deleteShare() fires ShareDeletedEvent, unhandled here.
+	 * So this converts exactly once.
+	 */
+	private function convertToFederated(IShare $share, string $recipient): void {
+		try {
+			$masterHost = preg_replace('#^https?://#', '', rtrim($this->shardingService->masterUrl(), '/'));
+			if ($masterHost === '') {
+				return; // no master configured — leave the (dead) local share rather than lose it
+			}
+			$node      = $share->getNode();
+			$sharedBy  = $share->getSharedBy();
+			$perms     = $share->getPermissions();
+
+			// Drop the dead local share first so its mount can't shadow the federated one.
+			$this->shareManager->deleteShare($share);
+
+			$new = $this->shareManager->newShare();
+			$new->setNode($node)
+				->setShareType(IShare::TYPE_REMOTE)
+				->setSharedWith($recipient . '@' . $masterHost)
+				->setSharedBy($sharedBy)
+				->setPermissions($perms);
+			$this->shareManager->createShare($new);
+
+			$this->logger->info('files_sharding: ShareCreatedListener: re-routed dead local share to non-resident '
+				. $recipient . ' as federated ' . $recipient . '@' . $masterHost);
+		} catch (\Throwable $e) {
+			$this->logger->warning('files_sharding: ShareCreatedListener: convertToFederated failed for '
+				. $recipient . ': ' . $e->getMessage());
 		}
 	}
 }
