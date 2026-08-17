@@ -12,6 +12,7 @@ use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\JSONResponse;
 use OCP\AppFramework\Http\Response;
 use OCP\AppFramework\Middleware;
+use OCP\Notification\IManager as INotificationManager;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -27,6 +28,7 @@ class OcmShareReceivedMiddleware extends Middleware {
 	public function __construct(
 		private ShardingService $shardingService,
 		private InterServerClient $client,
+		private INotificationManager $notificationManager,
 		private LoggerInterface $logger,
 	) {
 	}
@@ -67,6 +69,20 @@ class OcmShareReceivedMiddleware extends Middleware {
 		} else {
 			$inserted = (int)($result['inserted'] ?? 0);
 			$this->logger->info("files_sharding: OcmShareReceivedMiddleware: pushed sync for {$userId} to {$siloUrl} ({$inserted} inserted)");
+		}
+
+		// The recipient lives on a silo and only ever acts on their silo, where the
+		// share is mirrored (auto-accepted for cluster origins, with our own clean
+		// notice; pending with accept/decline for external partners). The stock
+		// files_sharing notification core just created here on the MASTER — a moot
+		// remote_share/incoming_user_share the user never sees in the right place —
+		// is pure relay noise (and would email them). Dismiss it.
+		try {
+			$dismiss = $this->notificationManager->createNotification();
+			$dismiss->setApp('files_sharing')->setUser($userId);
+			$this->notificationManager->markProcessed($dismiss);
+		} catch (\Throwable $e) {
+			$this->logger->warning('files_sharding: OcmShareReceivedMiddleware: could not clear master-side notice for ' . $userId . ': ' . $e->getMessage());
 		}
 
 		return $response;

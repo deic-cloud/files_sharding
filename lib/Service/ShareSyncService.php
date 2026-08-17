@@ -170,6 +170,16 @@ class ShareSyncService {
 				   ->where($dq->expr()->eq('id', $dq->createNamedParameter($lr['id'], IQueryBuilder::PARAM_INT)));
 				$dq->executeStatement();
 				$pruned++;
+				// Clear the "X shared Y with you" notice for the share that's now gone,
+				// so a re-share (new id each time) doesn't leave a growing pile of stale
+				// notifications (and repeat emails) for shares that no longer exist.
+				try {
+					$dismiss = $this->notificationManager->createNotification();
+					$dismiss->setApp('files_sharding')->setUser($userId)->setObject('remote_share', (string)$lr['id']);
+					$this->notificationManager->markProcessed($dismiss);
+				} catch (\Throwable) {
+					// non-fatal — a lingering notice is cosmetic
+				}
 			} catch (\Throwable $e) {
 				$this->logger->warning("files_sharding: ShareSyncService: failed to prune stale share {$lr['id']} for {$userId}: " . $e->getMessage());
 			}

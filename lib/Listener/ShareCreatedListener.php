@@ -118,6 +118,17 @@ class ShareCreatedListener implements IEventListener {
 			$sharedBy  = $share->getSharedBy();
 			$perms     = $share->getPermissions();
 
+			// Core already posted an incoming_user_share notice for the (about-to-be-
+			// deleted) local share; clear it so the recipient only gets the federated
+			// path's clean notice. (The OcmShareReceivedMiddleware also sweeps master-
+			// side notices for silo-homed users, but dismiss here too for immediacy.)
+			try {
+				$dismiss = $this->notificationManager->createNotification();
+				$dismiss->setApp('files_sharing')->setUser($recipient)->setObject('share', $share->getFullId());
+				$this->notificationManager->markProcessed($dismiss);
+			} catch (\Throwable) {
+			}
+
 			// Drop the dead local share first so its mount can't shadow the federated one.
 			$this->shareManager->deleteShare($share);
 
