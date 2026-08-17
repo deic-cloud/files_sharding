@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace OCA\FilesSharding\Controller;
 
+use OCA\FilesSharding\Service\GroupShareRegistry;
 use OCA\FilesSharding\Service\ShareSyncService;
 use OCA\FilesSharding\Service\ShardingService;
 use OCA\FilesSharding\Service\TokenService;
@@ -37,6 +38,7 @@ class InternalController extends Controller {
 		private ICloudFederationFactory           $cloudFederationFactory,
 		private ICloudFederationProviderManager   $cloudFederationProviderManager,
 		private ShareSyncService                  $shareSyncService,
+		private GroupShareRegistry                $groupShareRegistry,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -171,6 +173,7 @@ class InternalController extends Controller {
 			return new JSONResponse(['message' => 'User not found'], 404);
 		}
 
+		// (1) Direct incoming shares: rows addressed to this user.
 		$qb = $this->db->getQueryBuilder();
 		$qb->select('remote', 'remote_id', 'share_token', 'name', 'owner', 'share_type', 'password')
 		   ->from('share_external')
@@ -179,7 +182,63 @@ class InternalController extends Controller {
 		$shares  = $result->fetchAllAssociative();
 		$result->closeCursor();
 
+		// (2) Group shares: expand the user's group memberships and include every
+		// group-share registry row (target_group set) for a group they belong to.
+		// This is computed on demand from the authoritative membership — the group
+		// share is ONE registry row, never fanned out per member. Join/leave are
+		// simply reflected here on the next resolve.
+		$gids = $this->shardingService->getUserGroupIds($userId);
+		if (!empty($gids)) {
+			$gq = $this->db->getQueryBuilder();
+			$gq->select('remote', 'remote_id', 'share_token', 'name', 'owner', 'share_type', 'password')
+			   ->from('share_external')
+			   ->where($gq->expr()->neq('target_group', $gq->createNamedParameter('')))
+			   ->andWhere($gq->expr()->in('target_group', $gq->createNamedParameter($gids, IQueryBuilder::PARAM_STR_ARRAY)));
+			$gres = $gq->executeQuery();
+			foreach ($gres->fetchAllAssociative() as $row) {
+				$shares[] = $row;
+			}
+			$gres->closeCursor();
+		}
+
 		return new JSONResponse(['shares' => $shares]);
+	}
+
+	/**
+	 * Register a group share in the master's authoritative registry. Called by a
+	 * silo when one of its users shares a folder with a group (master-resident
+	 * owners register locally without this round-trip).
+	 */
+	#[PublicPage]
+	#[NoCSRFRequired]
+	public function registerGroupShare(
+		string $gid = '', string $owner = '', string $ownerUrl = '',
+		string $token = '', string $name = '', string $remoteId = '', string $permissions = '0',
+	): JSONResponse {
+		if ($err = $this->checkSecret()) return $err;
+		if (!$this->shardingService->isMaster()) {
+			return new JSONResponse(['message' => 'Only the master holds the group-share registry'], 403);
+		}
+		if ($gid === '' || $owner === '' || $ownerUrl === '' || $token === '' || $name === '') {
+			return new JSONResponse(['message' => 'Missing required parameter'], 400);
+		}
+		$this->groupShareRegistry->registerLocal($gid, $owner, $ownerUrl, $token, $name, $remoteId, (int)$permissions);
+		return new JSONResponse(['success' => true]);
+	}
+
+	/** Remove a group share from the master's registry (owner unshared it). */
+	#[PublicPage]
+	#[NoCSRFRequired]
+	public function deregisterGroupShare(string $gid = '', string $owner = '', string $name = ''): JSONResponse {
+		if ($err = $this->checkSecret()) return $err;
+		if (!$this->shardingService->isMaster()) {
+			return new JSONResponse(['message' => 'Only the master holds the group-share registry'], 403);
+		}
+		if ($gid === '' || $owner === '' || $name === '') {
+			return new JSONResponse(['message' => 'Missing required parameter'], 400);
+		}
+		$this->groupShareRegistry->deregisterLocal($gid, $owner, $name);
+		return new JSONResponse(['success' => true]);
 	}
 
 	/**

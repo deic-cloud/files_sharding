@@ -21,6 +21,8 @@ return [
 		['name' => 'internal#searchUsers',        'url' => '/internal/users/search',                 'verb' => 'GET'],
 		['name' => 'internal#exportExternalShares','url' => '/internal/users/{userId}/external-shares','verb' => 'GET'],
 		['name' => 'internal#proxyShareAccept',    'url' => '/internal/shares/proxy-accept',           'verb' => 'POST'],
+		['name' => 'internal#registerGroupShare',  'url' => '/internal/group-shares/register',         'verb' => 'POST'],
+		['name' => 'internal#deregisterGroupShare','url' => '/internal/group-shares/deregister',       'verb' => 'POST'],
 		['name' => 'internal#syncShares',          'url' => '/internal/users/{userId}/sync-shares',    'verb' => 'POST'],
 		['name' => 'internal#updateUser',          'url' => '/internal/users/{userId}/update',          'verb' => 'POST'],
 		['name' => 'internal#setPasswordHash',     'url' => '/internal/users/{userId}/pwhash',          'verb' => 'POST'],

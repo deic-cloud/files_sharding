@@ -101,6 +101,18 @@ The desktop sync client and WebDAV clients need the **silo URL**, not the master
 
 Users are identified as `user@masterhost` in federation. The master proxies share acceptance and syncs share state to the correct silo via the internal API.
 
+### Sharing model — one authority, derived caches
+
+Sharing is **not** distributed state. The **master is the single authority** and is consulted to *resolve* what a user can access; each silo holds only a **derived cache** that it reconciles against the master. This mirrors the pre-Nextcloud ScienceData design (sharing as a function of a few authoritative tables) and is what keeps silo replacement, user migration, and downtime from being sharing problems: the worst case is staleness until the next reconcile, never permanent drift.
+
+- **Authority (master):** incoming user federated shares aggregate in the master's `oc_share_external`; **group shares** are registered there too, in the *same table*, distinguished by a **`target_group`** column (empty for user shares). No new tables, no duplicated truth. Group membership is already authoritative on the master (`user_group_admin`).
+- **Resolver:** `internal/users/{userId}/external-shares` returns a user's *direct* incoming shares **plus** every group-share registry row whose `target_group` is a group the user belongs to (expanded on demand via `IGroupManager` — a group share is **one** registry row, never fanned out per member).
+- **Cache (silo):** `ShareSyncService` materialises the resolver output as `oc_share_external` mounts, **fully reconciled** (add new / prune gone) on every refresh — login, each Files-app load (`SyncExternalSharesListener`), and an optional master→silo push for immediacy. Because the cache is *re-derived*, a wiped/reinstalled silo or a moved user simply re-resolves; a missed push self-heals on the next read.
+
+**Group shares — token delivery (no owner impersonation).** A group share has no NC access token, so on creation `GroupShareListener` mints a companion **link-share** token for the folder on the owner's node and records it in the registry row. A member's silo mounts the folder through the owner's public-webdav endpoint with that token — the same path user federated shares use. The token lives only in server-side rows (registry + silo caches) and is **never exposed to a user's browser**, so removing a leaver's mount fully removes their access. **Join/leave/unshare** need no per-member bookkeeping: they change what the resolver returns, and silos reconcile (join → mount appears on next resolve; leave/unshare → mount pruned; the companion link + registry row are removed on unshare).
+
+> **Schema note:** `target_group` is an added column on the core `oc_share_external` table (`Version007…`). Because ScienceData deploys app updates by file-copy + fpm-reload — which does **not** run migrations — the column must also be applied via SQL / baked into firstboot on existing clusters; the migration covers fresh app-store installs.
+
 ## API
 
 ### OCS (admin-authenticated)
@@ -126,9 +138,11 @@ Called node-to-node; no Nextcloud session required.
 | `POST` | `/internal/servers/{id}/free` | Update free GB (silo→master) |
 | `GET` | `/internal/servers` | List servers (any→master) |
 | `GET` | `/internal/users/search` | Search users |
-| `GET` | `/internal/users/{userId}/external-shares` | Export share state |
+| `GET` | `/internal/users/{userId}/external-shares` | Resolve share state (direct + group) |
 | `POST` | `/internal/users/{userId}/sync-shares` | Sync incoming shares |
 | `POST` | `/internal/shares/proxy-accept` | Proxy share acceptance |
+| `POST` | `/internal/group-shares/register` | Register a group share (silo→master) |
+| `POST` | `/internal/group-shares/deregister` | Deregister a group share (silo→master) |
 | `POST` | `/internal/users/{userId}/update` | Propagate user changes |
 | `POST` | `/internal/users/{userId}/delete` | Propagate user deletion |
 

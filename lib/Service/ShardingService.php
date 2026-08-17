@@ -248,6 +248,29 @@ class ShardingService {
 		return ['assignments' => $assignments, 'total' => $total];
 	}
 
+	/**
+	 * GIDs of every group $userId belongs to, across all backends (including the
+	 * user_group_admin cross-silo groups). Used by the share resolver to expand a
+	 * user into the group shares that apply to them. Authoritative on the master.
+	 *
+	 * @return string[]
+	 */
+	public function getUserGroupIds(string $userId): array {
+		try {
+			$user = $this->container->get(\OCP\IUserManager::class)->get($userId);
+			if ($user === null) {
+				return [];
+			}
+			return array_values(array_map(
+				static fn ($g) => $g->getGID(),
+				$this->groupManager->getUserGroups($user),
+			));
+		} catch (\Throwable $e) {
+			$this->logger->warning('files_sharding: getUserGroupIds failed for ' . $userId . ': ' . $e->getMessage());
+			return [];
+		}
+	}
+
 	public function getUserServer(string $userId): ?Server {
 		try {
 			$us = $this->userServerMapper->findByUserId($userId);

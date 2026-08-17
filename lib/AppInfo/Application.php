@@ -10,6 +10,7 @@ use OCA\FilesSharding\Auth\IpAuthBackend;
 use OCA\FilesSharding\Auth\X509Backend;
 use OCA\FilesSharding\Listener\CspListener;
 use OCA\FilesSharding\Listener\ExternalShareScanWarmer;
+use OCA\FilesSharding\Listener\GroupShareListener;
 use OCA\FilesSharding\Listener\PostLoginListener;
 use OCA\FilesSharding\Listener\PostLogoutListener;
 use OCA\FilesSharding\Listener\ProxyShareAcceptanceListener;
@@ -72,6 +73,10 @@ class Application extends App implements IBootstrap {
 		// listener (default 0) — we dismiss core's incoming_user_share, which must
 		// therefore already exist when we run.
 		$context->registerEventListener(ShareCreatedEvent::class, ShareCreatedListener::class, -100);
+		// Cross-silo group sharing: register/deregister a group share in the master's
+		// authoritative registry so the resolver can deliver it to members on any silo.
+		$context->registerEventListener(ShareCreatedEvent::class, GroupShareListener::class);
+		$context->registerEventListener(\OCP\Share\Events\ShareDeletedEvent::class, GroupShareListener::class);
 		$context->registerNotifierService(\OCA\FilesSharding\Notification\Notifier::class);
 		$context->registerMiddleware(RedirectMiddleware::class, true);
 		$context->registerMiddleware(\OCA\FilesSharding\Middleware\LogoutRedirectMiddleware::class, true);
