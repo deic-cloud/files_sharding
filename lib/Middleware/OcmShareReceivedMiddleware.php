@@ -57,8 +57,11 @@ class OcmShareReceivedMiddleware extends Middleware {
 		}
 
 		$server = $this->shardingService->getUserServer($userId);
-		if ($server === null) {
-			return $response; // user lives on the master itself
+		if ($server === null || $this->shardingService->isSelf($server)) {
+			// Recipient lives on THIS node (the master runs as a silo too, and is a
+			// registered server here, so getUserServer returns it — not null). No
+			// cross-node push is needed, and their notification stays: they act here.
+			return $response;
 		}
 
 		$siloUrl = $this->shardingService->apiUrlForServer($server);
