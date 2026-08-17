@@ -465,14 +465,19 @@ class ShardingService {
 			if (!$ts->isTrustedServer($url)) {
 				$ts->addServer($url);
 			}
-			// Cluster nodes trust each other by design (they share the
-			// files_sharding secret). NC's per-pair shared-secret handshake isn't
-			// used on our auto-accept / OCM path and otherwise leaves the row at
-			// STATUS_PENDING, which looks broken during debugging. isTrustedServer
-			// is a membership check, so OK vs PENDING is cosmetic here — mark OK
-			// (also on already-trusted rows) so the trust table reads clean on a
-			// fresh install.
-			$ts->setServerStatus($url, \OCA\Federation\TrustedServers::STATUS_OK);
+			// We deliberately do NOT force the row to STATUS_OK. Cluster nodes trust
+			// each other by MEMBERSHIP (they share the files_sharding secret), and
+			// everything we rely on keys off isTrustedServer()/our own registry, not
+			// the status: core's trusted-share auto-accept checks isTrustedServer()
+			// (CloudFederationProviderFiles), and OCM share/accept/unshare authenticate
+			// with the per-share token — never the pairwise shared_secret. So NC's
+			// secret handshake never completes here and the row honestly stays
+			// STATUS_PENDING with an empty shared_secret. That is EXPECTED and harmless:
+			// the only thing the secret feeds is the Federation account-directory
+			// SyncJob, which we don't use (MasterUserSearch queries the master live).
+			// (We previously forced OK to avoid a "why is this PENDING?" detour — it
+			// backfired: OK + empty secret is self-contradicting and invited exactly
+			// that detour, and forcing OK doesn't complete the handshake anyway.)
 		} catch (\Throwable $e) {
 			$this->logger->debug('files_sharding: could not auto-trust server (federation app missing?): ' . $e->getMessage());
 		}
