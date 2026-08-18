@@ -12,19 +12,22 @@ use OCP\IRequest;
 use OCP\Share\IShare;
 
 /**
- * Keeps cluster peers out of the wrong share-dialog box. Since servers now trust
- * each other, the Federation account-directory SyncJob populates federated address
- * books, so core's remote search offers cluster peers by their `user@silo` (and
- * `user@master`) cloud ids. We present cluster peers ONLY via their canonical
- * `user@master` identity in the "Internal shares" box (MasterUserSearch), so:
+ * Canonicalises cluster peers in the share-dialog "remotes" results.
  *
- *   - Internal box (request includes TYPE_USER): strip the non-master `user@silo`
- *     duplicates, keep the canonical `@master` entry.
- *   - External box (out-of-cluster federation; no TYPE_USER requested): strip ALL
- *     cluster peers — they belong in Internal, not here.
+ * Since cluster nodes trust each other, the Federation account-directory SyncJob
+ * populates federated address books, so core's remote search returns cluster peers
+ * BOTH as `user@silo` and as `user@master` (the latter colliding, same shareWith,
+ * with MasterUserSearch's own entry — and carrying a `server` field that leaks the
+ * host as an "on {host}" subname). We present cluster peers ONLY via their canonical
+ * `user@master` identity, exactly once, and only in the "Internal shares" box.
  *
- * Genuine external-partner remotes (not in the cluster registry) are never touched.
- * Registered for SHARE_TYPE_REMOTE; prunes core's results in place.
+ * So for every cluster peer we REMOVE all of core's/MUS's variants (any host, both
+ * exact and wide buckets — removeCollaboratorResult can't distinguish same-shareWith
+ * duplicates) and, in the Internal box only, re-add a single clean `@master` entry.
+ * The External box (out-of-cluster federation) gets none. Genuine external-partner
+ * remotes (not in the cluster registry) are left untouched.
+ *
+ * Registered for SHARE_TYPE_REMOTE; runs after MasterUserSearch and core's search.
  */
 class RemoteClusterDedupeFilter implements ISearchPlugin {
 	public function __construct(
@@ -37,9 +40,8 @@ class RemoteClusterDedupeFilter implements ISearchPlugin {
 		$type    = new SearchResultType('remotes');
 		$current = $searchResult->asArray();
 
-		// The Internal box always requests TYPE_USER alongside the remote types; the
-		// External box never does (see SharingInput.vue / MasterUserSearch).
-		$types      = $this->request->getParam('shareType');
+		// Internal box always requests TYPE_USER alongside remotes; External never does.
+		$types       = $this->request->getParam('shareType');
 		$internalBox = false;
 		if (is_array($types)) {
 			foreach ($types as $t) {
@@ -50,37 +52,52 @@ class RemoteClusterDedupeFilter implements ISearchPlugin {
 			}
 		}
 
-		$buckets = [];
-		if (!empty($current['remotes'])) {
-			$buckets[] = $current['remotes'];
-		}
-		if (!empty($current['exact']['remotes'])) {
-			$buckets[] = $current['exact']['remotes'];
-		}
+		$masterHost = preg_replace('#^https?://#', '', rtrim($this->shardingService->masterUrl(), '/'));
 
-		$checked = [];
-		foreach ($buckets as $bucket) {
+		// Gather cluster-peer remote entries, grouped by the user part of shareWith.
+		// @var array<string, array{name: string, exact: bool, shareWiths: array<string,true>}>
+		$peers = [];
+		foreach (['remotes' => false, 'exact' => true] as $key => $isExact) {
+			$bucket = $isExact ? ($current['exact']['remotes'] ?? []) : ($current['remotes'] ?? []);
 			foreach ($bucket as $entry) {
 				$shareWith = (string)($entry['value']['shareWith'] ?? '');
-				if ($shareWith === '' || isset($checked[$shareWith])) {
-					continue;
-				}
-				$checked[$shareWith] = true;
 				$at = strrpos($shareWith, '@');
 				if ($at === false) {
 					continue;
 				}
 				$host = substr($shareWith, $at + 1);
-				$url  = 'https://' . $host;
-
-				if (!$this->shardingService->isClusterServer($url)) {
+				if (!$this->shardingService->isClusterServer('https://' . $host)) {
 					continue; // genuine external partner — leave it
 				}
-				// Cluster peer. In the External box strip it entirely; in the Internal
-				// box strip only the non-master duplicate (keep the canonical @master).
-				if (!$internalBox || $this->shardingService->isNonMasterClusterServer($host)) {
-					$searchResult->removeCollaboratorResult($type, $shareWith);
+				$userId = substr($shareWith, 0, $at);
+				if (!isset($peers[$userId])) {
+					$peers[$userId] = ['name' => (string)($entry['name'] ?? $userId), 'exact' => false, 'shareWiths' => []];
 				}
+				$peers[$userId]['shareWiths'][$shareWith] = true;
+				if ($isExact) {
+					$peers[$userId]['exact'] = true;
+				}
+			}
+		}
+
+		foreach ($peers as $userId => $info) {
+			// Drop every variant of this cluster peer (all hosts, both buckets).
+			foreach (array_keys($info['shareWiths']) as $sw) {
+				$searchResult->removeCollaboratorResult($type, $sw);
+			}
+			// Internal box: re-add a single clean canonical @master entry. External: none.
+			if ($internalBox && $masterHost !== '') {
+				$clean = [[
+					'label' => $info['name'] . ' (' . $userId . ')',
+					'uuid'  => $userId,
+					'name'  => $info['name'],
+					'value' => [
+						'shareType'       => IShare::TYPE_REMOTE,
+						'shareWith'       => $userId . '@' . $masterHost,
+						'isTrustedServer' => true,
+					],
+				]];
+				$searchResult->addResultSet($type, $info['exact'] ? [] : $clean, $info['exact'] ? $clean : []);
 			}
 		}
 
