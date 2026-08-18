@@ -460,6 +460,12 @@ class ShardingService {
 	 */
 	public function trustServer(string $url): void {
 		try {
+			// Never trust ourselves. SyncSiloTrustJob iterates the master's server
+			// registry, which includes THIS node — a self-trust row is a no-op for
+			// sharing (self-shares are local) but clutters the trust table.
+			if ($this->isThisNode($url)) {
+				return;
+			}
 			/** @var \OCA\Federation\TrustedServers $ts */
 			$ts = $this->container->get(\OCA\Federation\TrustedServers::class);
 			if (!$ts->isTrustedServer($url)) {
