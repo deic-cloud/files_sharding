@@ -113,14 +113,18 @@ class MasterUserSearch implements ISearchPlugin {
 			$cloudId   = $userId . '@' . $masterHost;
 			$shareWith = $cloudId;
 
+			// Present cluster peers WITHOUT exposing the silo host (silo-invisibility):
+			// label with the user's own id, not user@master-host, and omit `server`
+			// so the share dialog doesn't render an "on {host}" subname. The share
+			// still routes correctly — shareWith carries the canonical @master identity
+			// and the OCS API derives the remote from it (server was display-only).
 			$entry = [
-				'label' => $displayName . ' (' . $cloudId . ')',
+				'label' => $displayName . ' (' . $userId . ')',
 				'uuid'  => $userId,
 				'name'  => $displayName,
 				'value' => [
 					'shareType'       => IShare::TYPE_REMOTE,
 					'shareWith'       => $shareWith,
-					'server'          => $masterUrl,
 					'isTrustedServer' => true,
 				],
 			];

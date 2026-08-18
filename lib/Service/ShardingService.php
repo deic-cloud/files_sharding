@@ -107,6 +107,21 @@ class ShardingService {
 		return strtolower(($p['host'] ?? '') . ':' . ($p['port'] ?? ''));
 	}
 
+	/**
+	 * True if $hostOrUrl is a cluster silo OTHER than the master. Used to suppress
+	 * the duplicate `user@silo` sharee entries the Federation account-directory
+	 * SyncJob injects for cluster peers — we present those peers only via their
+	 * canonical `user@master` identity (MasterUserSearch). External partners
+	 * (not in the cluster registry) and the master itself are NOT matched.
+	 */
+	public function isNonMasterClusterServer(string $hostOrUrl): bool {
+		$url = str_contains($hostOrUrl, '://') ? $hostOrUrl : 'https://' . $hostOrUrl;
+		if (!$this->isClusterServer($url)) {
+			return false;
+		}
+		return $this->authority($url) !== $this->authority($this->masterUrl());
+	}
+
 	/** True if $url's authority (host:port) is THIS node's own (overwrite.cli.url). */
 	public function isThisNode(string $url): bool {
 		$ownUrl = rtrim((string)$this->config->getSystemValue('overwrite.cli.url', ''), '/');

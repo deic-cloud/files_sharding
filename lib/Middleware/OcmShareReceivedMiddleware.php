@@ -12,6 +12,7 @@ use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\JSONResponse;
 use OCP\AppFramework\Http\Response;
 use OCP\AppFramework\Middleware;
+use OCP\IDBConnection;
 use OCP\Notification\IManager as INotificationManager;
 use Psr\Log\LoggerInterface;
 
@@ -29,6 +30,7 @@ class OcmShareReceivedMiddleware extends Middleware {
 		private ShardingService $shardingService,
 		private InterServerClient $client,
 		private INotificationManager $notificationManager,
+		private IDBConnection $db,
 		private LoggerInterface $logger,
 	) {
 	}
@@ -57,10 +59,15 @@ class OcmShareReceivedMiddleware extends Middleware {
 		}
 
 		$server = $this->shardingService->getUserServer($userId);
-		if ($server === null || $this->shardingService->isSelf($server)) {
-			// Recipient lives on THIS node (the master runs as a silo too, and is a
-			// registered server here, so getUserServer returns it — not null). No
-			// cross-node push is needed, and their notification stays: they act here.
+		if ($server === null) {
+			return $response; // no silo assignment on record — leave as-is
+		}
+		if ($this->shardingService->isSelf($server)) {
+			// Recipient lives on THIS (master) node. Core auto-accepts the trusted
+			// share silently — no notification — whereas silo recipients get our clean
+			// "X shared Y with you" via ShareSyncService. Post the same notice here so
+			// master-resident recipients have parity. (No cross-node push needed.)
+			$this->notifyMasterResidentRecipient($userId);
 			return $response;
 		}
 
@@ -89,5 +96,37 @@ class OcmShareReceivedMiddleware extends Middleware {
 		}
 
 		return $response;
+	}
+
+	/**
+	 * Post the clean "X shared Y with you" notice for a master-resident recipient
+	 * of a federated share, matching what ShareSyncService posts for silo recipients
+	 * (core auto-accepted it silently, so there's nothing to build on). Reads the
+	 * just-created row from the master's own oc_share_external.
+	 */
+	private function notifyMasterResidentRecipient(string $userId): void {
+		try {
+			$qb = $this->db->getQueryBuilder();
+			$qb->select('id', 'owner', 'name')
+			   ->from('share_external')
+			   ->where($qb->expr()->eq('user', $qb->createNamedParameter($userId)))
+			   ->orderBy('id', 'DESC')
+			   ->setMaxResults(1);
+			$cur = $qb->executeQuery();
+			$row = $cur->fetch();
+			$cur->closeCursor();
+			if ($row === false) {
+				return;
+			}
+			$notification = $this->notificationManager->createNotification();
+			$notification->setApp('files_sharding')
+				->setUser($userId)
+				->setDateTime(new \DateTime())
+				->setObject('remote_share', (string)$row['id'])
+				->setSubject('share_received', [(string)$row['owner'], trim((string)$row['name'], '/')]);
+			$this->notificationManager->notify($notification);
+		} catch (\Throwable $e) {
+			$this->logger->warning('files_sharding: OcmShareReceivedMiddleware: could not notify master-resident ' . $userId . ': ' . $e->getMessage());
+		}
 	}
 }

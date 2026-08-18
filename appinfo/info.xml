@@ -36,6 +36,7 @@
 	<collaboration>
 		<plugins>
 			<plugin type="collaborator-search" share-type="SHARE_TYPE_REMOTE">OCA\FilesSharding\Collaboration\MasterUserSearch</plugin>
+			<plugin type="collaborator-search" share-type="SHARE_TYPE_REMOTE">OCA\FilesSharding\Collaboration\RemoteClusterDedupeFilter</plugin>
 			<plugin type="collaborator-search" share-type="SHARE_TYPE_USER">OCA\FilesSharding\Collaboration\ResidentUserFilter</plugin>
 		</plugins>
 	</collaboration>
