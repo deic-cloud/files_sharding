@@ -23,6 +23,9 @@ return [
 		['name' => 'internal#proxyShareAccept',    'url' => '/internal/shares/proxy-accept',           'verb' => 'POST'],
 		['name' => 'internal#registerGroupShare',  'url' => '/internal/group-shares/register',         'verb' => 'POST'],
 		['name' => 'internal#deregisterGroupShare','url' => '/internal/group-shares/deregister',       'verb' => 'POST'],
+		// Group fan-out (model A): residency resolution (master) + reconcile (any node)
+		['name' => 'internal#groupRemoteMembers',  'url' => '/internal/group-remote-members',          'verb' => 'POST'],
+		['name' => 'internal#groupShareReconcile', 'url' => '/internal/group-share-reconcile',         'verb' => 'POST'],
 		['name' => 'internal#syncShares',          'url' => '/internal/users/{userId}/sync-shares',    'verb' => 'POST'],
 		['name' => 'internal#updateUser',          'url' => '/internal/users/{userId}/update',          'verb' => 'POST'],
 		['name' => 'internal#setPasswordHash',     'url' => '/internal/users/{userId}/pwhash',          'verb' => 'POST'],
@@ -77,5 +80,7 @@ return [
 		// Sudo status / token (read-only; for JS status display and auto-fill)
 		['name' => 'api#sudoStatus', 'url' => '/api/v1/sudo/status', 'verb' => 'GET'],
 		['name' => 'api#sudoToken',  'url' => '/api/v1/sudo/token',  'verb' => 'GET'],
+		// Group-share fan-out child ids to hide in the sidebar (js/group-share-hide.js)
+		['name' => 'api#groupFanoutShares', 'url' => '/api/v1/group-fanout-shares', 'verb' => 'GET'],
 	],
 ];

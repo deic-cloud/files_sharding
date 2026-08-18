@@ -108,6 +108,17 @@ class ShardingService {
 	}
 
 	/**
+	 * True when two URLs point at the same node (host[:port]), scheme/path ignored.
+	 * Used by the group-share fan-out to decide whether a member is co-resident on
+	 * the owner's node (native local child) or remote (needs a federated child).
+	 */
+	public function sameNode(string $a, string $b): bool {
+		$aa = $this->authority($a);
+		$bb = $this->authority($b);
+		return $aa !== ':' && $aa === $bb;
+	}
+
+	/**
 	 * True if $hostOrUrl is a cluster silo OTHER than the master. Used to suppress
 	 * the duplicate `user@silo` sharee entries the Federation account-directory
 	 * SyncJob injects for cluster peers — we present those peers only via their

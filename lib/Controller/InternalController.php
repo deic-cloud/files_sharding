@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace OCA\FilesSharding\Controller;
 
+use OCA\FilesSharding\Service\GroupShareFanoutService;
 use OCA\FilesSharding\Service\GroupShareRegistry;
 use OCA\FilesSharding\Service\ShareSyncService;
 use OCA\FilesSharding\Service\ShardingService;
@@ -39,6 +40,7 @@ class InternalController extends Controller {
 		private ICloudFederationProviderManager   $cloudFederationProviderManager,
 		private ShareSyncService                  $shareSyncService,
 		private GroupShareRegistry                $groupShareRegistry,
+		private GroupShareFanoutService           $fanout,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -182,14 +184,10 @@ class InternalController extends Controller {
 		$shares  = $result->fetchAllAssociative();
 		$result->closeCursor();
 
-		// (2) Group shares: expand the user's group memberships and include every
-		// group share (dedicated registry table) for a group they belong to. Computed
-		// on demand from the authoritative membership — the group share is ONE registry
-		// row, never fanned out per member. Join/leave are reflected here on the next
-		// resolve.
-		foreach ($this->groupShareRegistry->resolveForGroups($this->shardingService->getUserGroupIds($userId)) as $row) {
-			$shares[] = $row;
-		}
+		// Group shares are NOT injected here any more. Delivery model A fans a group
+		// share out into real per-member federated shares (owner→member@master) that
+		// arrive through the ordinary OCM path and appear as direct rows above — so
+		// injecting a resolver row too would double-deliver. See GroupShareFanoutService.
 
 		return new JSONResponse(['shares' => $shares]);
 	}
@@ -372,5 +370,40 @@ class InternalController extends Controller {
 		}
 		$inserted = $this->shareSyncService->syncForUser($userId);
 		return new JSONResponse(['success' => true, 'inserted' => $inserted]);
+	}
+
+	/**
+	 * Resolve which members of $gid are NOT resident on $ownerUrl — the ones an owner
+	 * node must reach with a federated child share (group fan-out, model A). MASTER
+	 * only: residency lives in the master's user→server map. Called by silo owners
+	 * during reconcile.
+	 */
+	#[PublicPage]
+	#[NoCSRFRequired]
+	public function groupRemoteMembers(string $gid = '', string $ownerUrl = ''): JSONResponse {
+		if ($err = $this->checkSecret()) return $err;
+		if (!$this->shardingService->isMaster()) {
+			return new JSONResponse(['message' => 'Only the master resolves residency'], 403);
+		}
+		if ($gid === '' || $ownerUrl === '') {
+			return new JSONResponse(['message' => 'Missing required parameter'], 400);
+		}
+		return new JSONResponse(['members' => $this->fanout->remoteMembersForOwner($gid, $ownerUrl)]);
+	}
+
+	/**
+	 * Reconcile this node's federated children for group $gid against current
+	 * membership (create missing, prune stale/orphaned). Broadcast by the master on a
+	 * membership change; idempotent, so safe to receive repeatedly.
+	 */
+	#[PublicPage]
+	#[NoCSRFRequired]
+	public function groupShareReconcile(string $gid = ''): JSONResponse {
+		if ($err = $this->checkSecret()) return $err;
+		if ($gid === '') {
+			return new JSONResponse(['message' => 'Missing required parameter'], 400);
+		}
+		$this->fanout->reconcileGid($gid);
+		return new JSONResponse(['success' => true]);
 	}
 }

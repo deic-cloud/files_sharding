@@ -10,6 +10,8 @@ use OCA\FilesSharding\Auth\IpAuthBackend;
 use OCA\FilesSharding\Auth\X509Backend;
 use OCA\FilesSharding\Listener\CspListener;
 use OCA\FilesSharding\Listener\ExternalShareScanWarmer;
+use OCA\FilesSharding\Listener\GroupMembershipListener;
+use OCA\FilesSharding\Listener\GroupShareHideScriptListener;
 use OCA\FilesSharding\Listener\GroupShareListener;
 use OCA\FilesSharding\Listener\PostLoginListener;
 use OCA\FilesSharding\Listener\PostLogoutListener;
@@ -33,6 +35,8 @@ use OCP\AppFramework\Http\Events\BeforeLoginTemplateRenderedEvent;
 use OCP\AppFramework\Http\Events\BeforeTemplateRenderedEvent;
 use OCP\IUserManager;
 use OCP\Security\CSP\AddContentSecurityPolicyEvent;
+use OCP\Group\Events\UserAddedEvent;
+use OCP\Group\Events\UserRemovedEvent;
 use OCP\Share\Events\ShareCreatedEvent;
 use OCP\User\Events\PasswordUpdatedEvent;
 use OCP\User\Events\UserChangedEvent;
@@ -77,6 +81,16 @@ class Application extends App implements IBootstrap {
 		// authoritative registry so the resolver can deliver it to members on any silo.
 		$context->registerEventListener(ShareCreatedEvent::class, GroupShareListener::class);
 		$context->registerEventListener(\OCP\Share\Events\ShareDeletedEvent::class, GroupShareListener::class);
+		// Membership changes → the master reconciles the affected group's fan-out
+		// across all nodes. user_group_admin's own event is the reliable signal (core
+		// group events don't fire for its backend); core events cover plain groups.
+		// The UGA event is referenced by name only — no hard dependency if it's absent.
+		$context->registerEventListener('OCA\\UserGroupAdmin\\Event\\GroupMembersChangedEvent', GroupMembershipListener::class);
+		$context->registerEventListener(UserAddedEvent::class, GroupMembershipListener::class);
+		$context->registerEventListener(UserRemovedEvent::class, GroupMembershipListener::class);
+		// Load the sidebar script that collapses a group share's fan-out children to
+		// one "shared with <group>" row.
+		$context->registerEventListener(\OCA\Files\Event\LoadAdditionalScriptsEvent::class, GroupShareHideScriptListener::class);
 		$context->registerNotifierService(\OCA\FilesSharding\Notification\Notifier::class);
 		$context->registerMiddleware(RedirectMiddleware::class, true);
 		$context->registerMiddleware(\OCA\FilesSharding\Middleware\LogoutRedirectMiddleware::class, true);

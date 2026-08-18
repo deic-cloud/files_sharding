@@ -6,6 +6,7 @@ namespace OCA\FilesSharding\Controller;
 
 use OCA\FilesSharding\Db\UserServer;
 use OCA\FilesSharding\Service\CertificateService;
+use OCA\FilesSharding\Service\GroupShareFanoutService;
 use OCA\FilesSharding\Service\ShardingService;
 use OCA\FilesSharding\Service\TokenService;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
@@ -28,12 +29,27 @@ class ApiController extends OCSController {
 		private IConfig            $config,
 		private CertificateService $certificateService,
 		private ISession           $session,
+		private GroupShareFanoutService $fanout,
 	) {
 		parent::__construct($appName, $request);
 	}
 
 	private function currentUserId(): string {
 		return $this->userSession->getUser()?->getUID() ?? '';
+	}
+
+	/**
+	 * The current user's group-share fan-out CHILD share ids — the per-member
+	 * federated shares the sidebar hides so a group share shows as one row.
+	 * Consumed by js/group-share-hide.js.
+	 */
+	#[NoAdminRequired]
+	public function groupFanoutShares(): DataResponse {
+		$uid = $this->currentUserId();
+		if ($uid === '') {
+			return new DataResponse(['ids' => []]);
+		}
+		return new DataResponse(['ids' => $this->fanout->fanoutShareIdsForOwner($uid)]);
 	}
 
 
