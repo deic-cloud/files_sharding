@@ -58,6 +58,9 @@ class RedirectMiddleware extends Middleware {
 			str_starts_with($uri, '/ocs/')
 			|| str_starts_with($uri, '/remote.php/')
 			|| $this->request->getHeader('OCS-APIREQUEST') === 'true'
+			// External-collaborator invite/accept pages must run on the node that holds
+			// the invite (where the link points), not bounce to the user's home silo.
+			|| str_contains($uri, '/apps/user_group_admin/signup')
 		) {
 			return;
 		}
