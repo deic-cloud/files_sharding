@@ -52,6 +52,13 @@ class RedirectMiddleware extends Middleware {
 			return;
 		}
 
+		// External-collaborator invite/accept pages (user_group_admin SignupController)
+		// must run on the node the invite link points at — never bounce them to the
+		// logged-in user's home silo (the master-held invite can't be handled there).
+		if (str_ends_with(get_class($controller), 'SignupController')) {
+			return;
+		}
+
 		// Skip non-page requests — OCS APIs, DAV, and remote.php never need the redirect UI.
 		$uri = $this->request->getRequestUri();
 		if (
@@ -117,6 +124,11 @@ class RedirectMiddleware extends Middleware {
 		// LoginController manages its own redirects (login exchange, sudo flow).
 		// Applying the silo-assignment redirect here would break those flows.
 		if ($controller instanceof LoginController) {
+			return $response;
+		}
+		// External-collaborator invite/accept pages must render on the invite-holding
+		// node — never redirect them to the user's home silo.
+		if (str_ends_with(get_class($controller), 'SignupController')) {
 			return $response;
 		}
 		return new RedirectResponse($url);
