@@ -13,6 +13,7 @@ use OCP\AppFramework\Http\JSONResponse;
 use OCP\AppFramework\Http\Response;
 use OCP\AppFramework\Middleware;
 use OCP\IDBConnection;
+use OCP\IRequest;
 use OCP\Notification\IManager as INotificationManager;
 use Psr\Log\LoggerInterface;
 
@@ -31,13 +32,66 @@ class OcmShareReceivedMiddleware extends Middleware {
 		private InterServerClient $client,
 		private INotificationManager $notificationManager,
 		private IDBConnection $db,
+		private IRequest $request,
 		private LoggerInterface $logger,
 	) {
+	}
+
+	/** Recipient uid of an in-flight OCM unshare, captured before core deletes the row. */
+	private ?string $pendingUnshareUser = null;
+
+	/**
+	 * On the master, capture the recipient of an incoming OCM unshare BEFORE core's
+	 * handler deletes the oc_share_external row — so afterController can push a reconcile
+	 * to that recipient's silo and prune the stale mirror immediately (rather than
+	 * waiting for the recipient's next login/sync; matters for WebDAV access, which
+	 * never triggers a login-gated sync).
+	 */
+	public function beforeController(Controller $controller, string $methodName): void {
+		$this->pendingUnshareUser = null;
+		if (!$this->shardingService->isMaster()) {
+			return;
+		}
+		if (!($controller instanceof RequestHandlerController) || $methodName !== 'receiveNotification') {
+			return;
+		}
+		if ((string)$this->request->getParam('notificationType') !== 'SHARE_UNSHARED') {
+			return;
+		}
+		$providerId   = (string)$this->request->getParam('providerId');
+		$notification  = $this->request->getParam('notification');
+		$token = is_array($notification) ? (string)($notification['sharedSecret'] ?? '') : '';
+		if ($providerId === '' || $token === '') {
+			return;
+		}
+		try {
+			$qb = $this->db->getQueryBuilder();
+			$qb->select('user')->from('share_external')
+				->where($qb->expr()->eq('remote_id', $qb->createNamedParameter($providerId)))
+				->andWhere($qb->expr()->eq('share_token', $qb->createNamedParameter($token)))
+				->setMaxResults(1);
+			$cur = $qb->executeQuery();
+			$row = $cur->fetch();
+			$cur->closeCursor();
+			if ($row !== false && !empty($row['user'])) {
+				$this->pendingUnshareUser = (string)$row['user'];
+			}
+		} catch (\Throwable $e) {
+			$this->logger->warning('files_sharding: OcmShareReceivedMiddleware: unshare recipient lookup failed: ' . $e->getMessage());
+		}
 	}
 
 	public function afterController(Controller $controller, string $methodName, Response $response): Response {
 		if (!$this->shardingService->isMaster()) {
 			return $response;
+		}
+
+		// OCM unshare (recipient captured in beforeController): push a reconcile to the
+		// recipient's silo so the now-removed mirror is pruned at once — not gated on
+		// their next login/sync, so WebDAV access sees correct state too.
+		if ($this->pendingUnshareUser !== null) {
+			$this->pushShareSync($this->pendingUnshareUser);
+			$this->pendingUnshareUser = null;
 		}
 
 		if (!($controller instanceof RequestHandlerController) || $methodName !== 'addShare') {
@@ -104,6 +158,21 @@ class OcmShareReceivedMiddleware extends Middleware {
 	 * (core auto-accepted it silently, so there's nothing to build on). Reads the
 	 * just-created row from the master's own oc_share_external.
 	 */
+	/** Push a full share reconcile to $userId's home silo (prunes stale mirrors + mounts new). */
+	private function pushShareSync(string $userId): void {
+		$server = $this->shardingService->getUserServer($userId);
+		if ($server === null || $this->shardingService->isSelf($server)) {
+			return; // recipient not on a silo (or lives here) — nothing to push
+		}
+		$siloUrl = $this->shardingService->apiUrlForServer($server);
+		$result  = $this->client->postDirect($siloUrl, 'internal/users/' . rawurlencode($userId) . '/sync-shares', []);
+		if ($result === null) {
+			$this->logger->warning("files_sharding: OcmShareReceivedMiddleware: failed to push reconcile for {$userId} to {$siloUrl}");
+		} else {
+			$this->logger->info("files_sharding: OcmShareReceivedMiddleware: pushed reconcile for {$userId} to {$siloUrl}");
+		}
+	}
+
 	private function notifyMasterResidentRecipient(string $userId): void {
 		try {
 			$qb = $this->db->getQueryBuilder();
