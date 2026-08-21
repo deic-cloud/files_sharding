@@ -17,8 +17,14 @@ use Psr\Log\LoggerInterface;
 class UserChangedListener implements IEventListener {
 	/** Features the master pushes down to the silo. */
 	private const MASTER_TO_SILO = ['displayName', 'eMailAddress', 'enabled', 'quota'];
-	/** Features the silo pushes back up to the master. */
-	private const SILO_TO_MASTER = ['displayName', 'eMailAddress'];
+	/**
+	 * Features the silo pushes back up to the master. 'enabled' MUST be here: an
+	 * external collaborator is deactivated on removal from their creating group on
+	 * their HOME silo (GroupService::removeMember → setEnabled(false)); without
+	 * propagating up, the master's directory copy stays enabled → master still lets
+	 * the session through and redirects to the (disabled) home silo → login limbo.
+	 */
+	private const SILO_TO_MASTER = ['displayName', 'eMailAddress', 'enabled'];
 
 	public function __construct(
 		private ShardingService   $shardingService,
@@ -57,7 +63,7 @@ class UserChangedListener implements IEventListener {
 	private function propagate(string $baseUrl, string $userId, string $feature, mixed $value): void {
 		$result = $this->interServerClient->postDirect(
 			$baseUrl,
-			'internal/users/' . urlencode($userId) . '/update',
+			'internal/users/' . rawurlencode($userId) . '/update',
 			['feature' => $feature, 'value' => (string)$value],
 		);
 		if ($result === null) {
