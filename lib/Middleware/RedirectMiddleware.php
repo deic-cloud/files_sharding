@@ -85,6 +85,15 @@ class RedirectMiddleware extends Middleware {
 			return;
 		}
 
+		// Never redirect a disabled account. A user disabled mid-session (e.g. an external
+		// collaborator removed from their creating group) can still momentarily resolve
+		// here before NC tears the session down; bouncing them to their home silo just
+		// lands them somewhere they equally can't log in — limbo/loop. Let NC's own
+		// disabled-account handling (log out + "account disabled") take over instead.
+		if (!$user->isEnabled()) {
+			return;
+		}
+
 		$userId  = $user->getUID();
 		$version = $this->shardingService->getAssignmentVersion($userId);
 
