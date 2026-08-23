@@ -4,9 +4,7 @@ declare(strict_types=1);
 
 namespace OCA\FilesSharding\Listener;
 
-use OCA\FilesSharding\Job\GroupShareReconcileJob;
 use OCA\FilesSharding\Service\GroupShareFanoutService;
-use OCP\BackgroundJob\IJobList;
 use OCP\EventDispatcher\Event;
 use OCP\EventDispatcher\IEventListener;
 use OCP\Share\Events\ShareCreatedEvent;
@@ -30,7 +28,6 @@ use Psr\Log\LoggerInterface;
 class GroupShareListener implements IEventListener {
 	public function __construct(
 		private GroupShareFanoutService $fanout,
-		private IJobList                $jobList,
 		private LoggerInterface         $logger,
 	) {
 	}
@@ -42,11 +39,7 @@ class GroupShareListener implements IEventListener {
 				if ($share->getShareType() !== IShare::TYPE_GROUP) {
 					return;
 				}
-				// Fan out to remote members OFF the request path: each cross-silo child is
-				// an OCM round-trip, and doing them inline blocked the owner's share dialog
-				// for tens of seconds. The local group share already exists; delivery is
-				// eventual. reconcileGid is idempotent, so a coalesced job is harmless.
-				$this->jobList->add(GroupShareReconcileJob::class, ['gid' => (string)$share->getSharedWith()]);
+				$this->fanout->reconcileGid((string)$share->getSharedWith());
 			} elseif ($event instanceof ShareDeletedEvent) {
 				$share = $event->getShare();
 				if ($share->getShareType() !== IShare::TYPE_GROUP) {
