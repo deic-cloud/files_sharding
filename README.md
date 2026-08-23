@@ -141,8 +141,7 @@ Called node-to-node; no Nextcloud session required.
 | `GET` | `/internal/users/{userId}/external-shares` | Resolve share state (direct + group) |
 | `POST` | `/internal/users/{userId}/sync-shares` | Sync incoming shares |
 | `POST` | `/internal/shares/proxy-accept` | Proxy share acceptance |
-| `POST` | `/internal/group-shares/register` | Register a group share (silo→master) |
-| `POST` | `/internal/group-shares/deregister` | Deregister a group share (silo→master) |
+| `POST` | `/internal/shares/live-ids` | Liveness batch: which of these share ids does this silo still serve? (master's share-authority reconcile) |
 | `POST` | `/internal/users/{userId}/update` | Propagate user changes |
 | `POST` | `/internal/users/{userId}/delete` | Propagate user deletion |
 

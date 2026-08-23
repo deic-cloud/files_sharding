@@ -21,8 +21,8 @@ return [
 		['name' => 'internal#searchUsers',        'url' => '/internal/users/search',                 'verb' => 'GET'],
 		['name' => 'internal#exportExternalShares','url' => '/internal/users/{userId}/external-shares','verb' => 'GET'],
 		['name' => 'internal#proxyShareAccept',    'url' => '/internal/shares/proxy-accept',           'verb' => 'POST'],
-		['name' => 'internal#registerGroupShare',  'url' => '/internal/group-shares/register',         'verb' => 'POST'],
-		['name' => 'internal#deregisterGroupShare','url' => '/internal/group-shares/deregister',       'verb' => 'POST'],
+		// Share-authority reconcile backstop: master asks an owner silo which share ids are still live
+		['name' => 'internal#liveShareIds',        'url' => '/internal/shares/live-ids',               'verb' => 'POST'],
 		// Group fan-out (model A): residency resolution (master) + reconcile (any node)
 		['name' => 'internal#groupRemoteMembers',  'url' => '/internal/group-remote-members',          'verb' => 'POST'],
 		['name' => 'internal#groupShareReconcile', 'url' => '/internal/group-share-reconcile',         'verb' => 'POST'],

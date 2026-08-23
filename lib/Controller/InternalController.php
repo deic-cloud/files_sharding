@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace OCA\FilesSharding\Controller;
 
 use OCA\FilesSharding\Service\GroupShareFanoutService;
-use OCA\FilesSharding\Service\GroupShareRegistry;
 use OCA\FilesSharding\Service\ShareSyncService;
 use OCA\FilesSharding\Service\ShardingService;
 use OCA\FilesSharding\Service\TokenService;
@@ -39,7 +38,6 @@ class InternalController extends Controller {
 		private ICloudFederationFactory           $cloudFederationFactory,
 		private ICloudFederationProviderManager   $cloudFederationProviderManager,
 		private ShareSyncService                  $shareSyncService,
-		private GroupShareRegistry                $groupShareRegistry,
 		private GroupShareFanoutService           $fanout,
 	) {
 		parent::__construct($appName, $request);
@@ -193,40 +191,30 @@ class InternalController extends Controller {
 	}
 
 	/**
-	 * Register a group share in the master's authoritative registry. Called by a
-	 * silo when one of its users shares a folder with a group (master-resident
-	 * owners register locally without this round-trip).
+	 * Liveness batch for the master's share-authority reconcile (ShareAuthorityReconcileJob).
+	 * Given a list of local oc_share ids (the master's federated mirrors record these as
+	 * remote_id), return the subset that still exist here — i.e. shares this silo still
+	 * serves. The master prunes any mirror whose owning share this silo no longer reports,
+	 * which is the convergent backstop for a missed OCM unshare notification.
 	 */
 	#[PublicPage]
 	#[NoCSRFRequired]
-	public function registerGroupShare(
-		string $gid = '', string $owner = '', string $ownerUrl = '',
-		string $token = '', string $name = '', string $remoteId = '', string $permissions = '0',
-	): JSONResponse {
+	public function liveShareIds(array $ids = []): JSONResponse {
 		if ($err = $this->checkSecret()) return $err;
-		if (!$this->shardingService->isMaster()) {
-			return new JSONResponse(['message' => 'Only the master holds the group-share registry'], 403);
+		$ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn ($i) => $i > 0)));
+		if ($ids === []) {
+			return new JSONResponse(['live' => []]);
 		}
-		if ($gid === '' || $owner === '' || $ownerUrl === '' || $token === '' || $name === '') {
-			return new JSONResponse(['message' => 'Missing required parameter'], 400);
+		$qb = $this->db->getQueryBuilder();
+		$qb->select('id')->from('share')
+		   ->where($qb->expr()->in('id', $qb->createNamedParameter($ids, IQueryBuilder::PARAM_INT_ARRAY)));
+		$cur = $qb->executeQuery();
+		$live = [];
+		while ($row = $cur->fetch()) {
+			$live[] = (string)$row['id'];
 		}
-		$this->groupShareRegistry->registerLocal($gid, $owner, $ownerUrl, $token, $name, $remoteId, (int)$permissions);
-		return new JSONResponse(['success' => true]);
-	}
-
-	/** Remove a group share from the master's registry (owner unshared it). */
-	#[PublicPage]
-	#[NoCSRFRequired]
-	public function deregisterGroupShare(string $gid = '', string $owner = '', string $name = ''): JSONResponse {
-		if ($err = $this->checkSecret()) return $err;
-		if (!$this->shardingService->isMaster()) {
-			return new JSONResponse(['message' => 'Only the master holds the group-share registry'], 403);
-		}
-		if ($gid === '' || $owner === '' || $name === '') {
-			return new JSONResponse(['message' => 'Missing required parameter'], 400);
-		}
-		$this->groupShareRegistry->deregisterLocal($gid, $owner, $name);
-		return new JSONResponse(['success' => true]);
+		$cur->closeCursor();
+		return new JSONResponse(['live' => $live]);
 	}
 
 	/**
