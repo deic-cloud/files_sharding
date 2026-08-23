@@ -75,13 +75,20 @@ class ExternalShareScanWarmer implements IEventListener {
 			->from('share_external')
 			->where($qb->expr()->eq('remote', $qb->createNamedParameter($remote)))
 			->andWhere($qb->expr()->eq('accepted', $qb->createNamedParameter(IShare::STATUS_ACCEPTED, IQueryBuilder::PARAM_INT)));
-		// If a session IS present (interactive accept), scope to that user to keep
-		// the work minimal; auto-accept has no session and warms every just-
-		// accepted share from this remote (cheap — one shallow PROPFIND each).
+		// If a session IS present (interactive accept), scope to that user.
 		$sessionUser = $this->userSession->getUser();
 		if ($sessionUser !== null) {
 			$qb->andWhere($qb->expr()->eq('user', $qb->createNamedParameter($sessionUser->getUID())));
 		}
+		// Warm ONLY the share that was just added — the newest accepted row for this
+		// remote (acceptShare inserts the row, then dispatches this event). Warming
+		// EVERY accepted share for the remote made this O(n): on the master (which
+		// relays every silo user's federated shares) the set grows without bound, and
+		// a single accept then fired a PROPFIND per existing share — including stale
+		// ones whose token is dead, which each block ~5s. That pushed the inbound
+		// OCM addShare past the sender's 5s client timeout, causing a retry storm
+		// (and duplicate mirror rows). One PROPFIND is all the just-added share needs.
+		$qb->orderBy('id', 'DESC')->setMaxResults(1);
 		$cursor = $qb->executeQuery();
 		$rows = $cursor->fetchAll();
 		$cursor->closeCursor();

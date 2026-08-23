@@ -112,6 +112,15 @@ class OcmShareReceivedMiddleware extends Middleware {
 			return $response; // group share — skip for now
 		}
 
+		// Idempotent receive: if the sender retried (e.g. it hit its own OCM client
+		// timeout while we were still processing), core will have inserted a SECOND
+		// oc_share_external row for the same (remote_id, share_token). Core's own
+		// lookups then do findOneQuery() on that pair and throw
+		// MultipleObjectsReturnedException — which is exactly the 400 that broke the
+		// /ocm/notifications (unshare/permission) path. Collapse duplicates now,
+		// keeping the earliest row, so a redelivery is a no-op rather than a landmine.
+		$this->collapseDuplicateExternalShares($userId);
+
 		$server = $this->shardingService->getUserServer($userId);
 		if ($server === null) {
 			return $response; // no silo assignment on record — leave as-is
@@ -170,6 +179,48 @@ class OcmShareReceivedMiddleware extends Middleware {
 			$this->logger->warning("files_sharding: OcmShareReceivedMiddleware: failed to push reconcile for {$userId} to {$siloUrl}");
 		} else {
 			$this->logger->info("files_sharding: OcmShareReceivedMiddleware: pushed reconcile for {$userId} to {$siloUrl}");
+		}
+	}
+
+	/**
+	 * Collapse duplicate oc_share_external rows for $userId, keeping the earliest id
+	 * of each (remote_id, share_token) pair. Duplicates arise when a sender redelivers
+	 * an OCM share (retry after a client-side timeout); core inserts a fresh row each
+	 * time, and the pair is what core treats as the unique share identity. Idempotent.
+	 */
+	private function collapseDuplicateExternalShares(string $userId): void {
+		try {
+			$qb = $this->db->getQueryBuilder();
+			$qb->select('id', 'remote_id', 'share_token')
+				->from('share_external')
+				->where($qb->expr()->eq('user', $qb->createNamedParameter($userId)))
+				->orderBy('id', 'ASC');
+			$cur = $qb->executeQuery();
+			$rows = $cur->fetchAll();
+			$cur->closeCursor();
+
+			$seen = [];
+			$dupIds = [];
+			foreach ($rows as $row) {
+				$key = (string)$row['remote_id'] . "\0" . (string)$row['share_token'];
+				if (isset($seen[$key])) {
+					$dupIds[] = (int)$row['id']; // a later row for an identity we already kept
+				} else {
+					$seen[$key] = true;
+				}
+			}
+			if ($dupIds === []) {
+				return;
+			}
+			$del = $this->db->getQueryBuilder();
+			$del->delete('share_external')
+				->where($del->expr()->in('id', $del->createParameter('ids')));
+			$del->setParameter('ids', $dupIds, \OCP\DB\QueryBuilder\IQueryBuilder::PARAM_INT_ARRAY);
+			$del->executeStatement();
+			$this->logger->info('files_sharding: OcmShareReceivedMiddleware: collapsed '
+				. count($dupIds) . ' duplicate external-share row(s) for ' . $userId);
+		} catch (\Throwable $e) {
+			$this->logger->warning('files_sharding: OcmShareReceivedMiddleware: dedupe failed for ' . $userId . ': ' . $e->getMessage());
 		}
 	}
 
