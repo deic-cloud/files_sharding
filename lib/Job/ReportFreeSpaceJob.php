@@ -59,7 +59,10 @@ class ReportFreeSpaceJob extends TimedJob {
 
 		$freeGb = (int)($freeBytes / 1_073_741_824);
 
-		$result = $this->client->post($masterUrl, "internal/servers/{$serverId}/free", ['free_gb' => $freeGb]);
+		// postDirect: the internal endpoints are PLAIN routes (/index.php/apps/…),
+		// not OCS — the OCS api#updateFree route was removed long ago and client
+		// ->post() builds the OCS URL, which 404'd hourly since 2026-06-30.
+		$result = $this->client->postDirect($masterUrl, "internal/servers/{$serverId}/free", ['freeGb' => $freeGb]);
 		if ($result === null) {
 			$this->logger->warning("files_sharding: ReportFreeSpaceJob: could not report free space to master (server_id={$serverId})");
 		} else {

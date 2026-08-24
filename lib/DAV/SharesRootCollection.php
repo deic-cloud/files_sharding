@@ -160,6 +160,12 @@ class SharesRootCollection implements ICollection {
 				if ($share->getStatus() !== IShare::STATUS_ACCEPTED) {
 					continue;
 				}
+				// getSharedWith(TYPE_GROUP) returns a member's OWN shares to the
+				// group too — sharingin is what others share with ME; skip self.
+				if ((string)$share->getShareOwner() === $this->userId
+					|| (string)$share->getSharedBy() === $this->userId) {
+					continue;
+				}
 				try {
 					$node = $share->getNode();
 				} catch (\Throwable) {
