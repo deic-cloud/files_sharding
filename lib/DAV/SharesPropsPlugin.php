@@ -95,8 +95,19 @@ class SharesPropsPlugin extends ServerPlugin {
 		return $p;
 	}
 
+	/**
+	 * Contract version, mixed into the synthetic etags. Bump whenever the
+	 * DAV contract changes in a way clients must re-discover (resourcetype,
+	 * permission letters, id scheme, …): the root/owner etags then change,
+	 * which is the ONLY signal that makes a sync client re-walk the tree —
+	 * otherwise it trusts its journal and keeps stale (possibly wrong)
+	 * entries forever, since file CONTENT etags don't change with the contract.
+	 * (v2: ShareFile/ShareDirectory split + M-flag removal, 2026-08-24.)
+	 */
+	private const CONTRACT = 'v2';
+
 	private function syntheticEtag(INode $node): string {
-		$parts = [];
+		$parts = [self::CONTRACT];
 		foreach ($node->getChildren() as $child) {
 			if ($child instanceof ShareDavNode) {
 				$parts[] = $child->getName() . ':' . $child->getETag();
