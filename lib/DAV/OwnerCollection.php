@@ -22,7 +22,7 @@ use Sabre\DAV\ICollection;
  * writes happen INSIDE the shared nodes, governed by each share's permissions.
  */
 class OwnerCollection implements ICollection {
-	/** @param array<string, ShareNode> $children share-name => root node */
+	/** @param array<string, ShareDavNode> $children share-name => root node */
 	public function __construct(
 		private string $ownerId,
 		private array  $children,
@@ -33,12 +33,12 @@ class OwnerCollection implements ICollection {
 		return $this->ownerId;
 	}
 
-	/** @return ShareNode[] */
+	/** @return ShareDavNode[] */
 	public function getChildren(): array {
 		return array_values($this->children);
 	}
 
-	public function getChild($name): ShareNode {
+	public function getChild($name): ShareDavNode {
 		if (!isset($this->children[$name])) {
 			throw new NotFound("$name not found");
 		}

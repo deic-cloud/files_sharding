@@ -22,7 +22,7 @@ use Sabre\DAV\ServerPlugin;
  * against /sharingin). It also wants oc:id/oc:fileid (move detection),
  * oc:permissions (read-only vs writable decisions) and oc:size.
  *
- * ShareNode wraps a real OCP node → serve the node's own etag/fileid/perms.
+ * ShareFile/ShareDirectory wrap a real OCP node → serve the node's own etag/fileid/perms.
  * OwnerCollection and the root are STRUCTURAL (no backing file) → synthesize:
  * their etag is the md5 of their children's etags, so a change anywhere below
  * bubbles up and depth-0 polling works; their id is a stable hash of the path.
@@ -39,7 +39,7 @@ class SharesPropsPlugin extends ServerPlugin {
 	}
 
 	public function propFind(PropFind $propFind, INode $node): void {
-		if ($node instanceof ShareNode) {
+		if ($node instanceof ShareDavNode) {
 			$fileNode = $node->getNode();
 			$propFind->handle('{DAV:}getetag', fn () => $node->getETag());
 			$propFind->handle('{http://owncloud.org/ns}fileid', fn () => (string)$fileNode->getId());
@@ -69,7 +69,7 @@ class SharesPropsPlugin extends ServerPlugin {
 	 * the green-but-empty failure observed. This endpoint presents shares as
 	 * plain directories, like the old service did.
 	 */
-	private function davPermissions(ShareNode $node): string {
+	private function davPermissions(ShareDavNode $node): string {
 		$fileNode = $node->getNode();
 		$mask = $fileNode->getPermissions();
 		$isFile = $fileNode instanceof File;
@@ -83,7 +83,7 @@ class SharesPropsPlugin extends ServerPlugin {
 		if ($isFile && ($mask & \OCP\Constants::PERMISSION_UPDATE)) {
 			$p .= 'W';
 		}
-		// Share roots refuse rename/delete on this surface (ShareNode guards).
+		// Share roots refuse rename/delete on this surface (ShareFile/ShareDirectory guards).
 		if (!$node->isShareRoot()) {
 			if ($mask & \OCP\Constants::PERMISSION_DELETE) {
 				$p .= 'D';
@@ -98,7 +98,7 @@ class SharesPropsPlugin extends ServerPlugin {
 	private function syntheticEtag(INode $node): string {
 		$parts = [];
 		foreach ($node->getChildren() as $child) {
-			if ($child instanceof ShareNode) {
+			if ($child instanceof ShareDavNode) {
 				$parts[] = $child->getName() . ':' . $child->getETag();
 			} elseif ($child instanceof OwnerCollection) {
 				$parts[] = $child->getName() . ':' . $this->syntheticEtag($child);

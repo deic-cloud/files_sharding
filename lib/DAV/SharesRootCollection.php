@@ -34,11 +34,11 @@ use Sabre\DAV\ICollection;
  *              parent group share.
  *
  * Both are READ/WRITE inside the shared nodes — this is the collaboration
- * surface (see ShareNode). Deliberately NOT reached by the default-endpoint
+ * surface (see ShareFile/ShareDirectory). Deliberately NOT reached by the default-endpoint
  * conceal gate: syncing/mounting shares via these URLs is a conscious act.
  */
 class SharesRootCollection implements ICollection {
-	/** @var array<string, ICollection|ShareNode>|null */
+	/** @var array<string, ICollection|ShareDavNode>|null */
 	private ?array $childCache = null;
 
 	public function __construct(
@@ -96,7 +96,7 @@ class SharesRootCollection implements ICollection {
 
 	// ── Internals ─────────────────────────────────────────────────────────────
 
-	/** @return array<string, ICollection|ShareNode> */
+	/** @return array<string, ICollection|ShareDavNode> */
 	private function buildChildren(): array {
 		if ($this->childCache !== null) {
 			return $this->childCache;
@@ -109,11 +109,11 @@ class SharesRootCollection implements ICollection {
 	private function buildIncoming(): array {
 		$userFolder = $this->rootFolder->getUserFolder($this->userId);
 
-		// owner id => [share name => ShareNode]
+		// owner id => [share name => ShareDavNode]
 		$byOwner = [];
 		$add = function (string $owner, string $name, \OCP\Files\Node $node) use (&$byOwner): void {
 			$name = $this->uniqueName($name, array_keys($byOwner[$owner] ?? []));
-			$byOwner[$owner][$name] = new ShareNode($node, $name, true);
+			$byOwner[$owner][$name] = ShareDirectory::wrap($node, $name, true);
 		};
 
 		// (1) Federated mirrors — cross-silo (and genuinely external) owners.
@@ -182,7 +182,7 @@ class SharesRootCollection implements ICollection {
 		return $out;
 	}
 
-	/** @return array<string, ShareNode> name => node (flat, deduped by node) */
+	/** @return array<string, ShareDavNode> name => node (flat, deduped by node) */
 	private function buildOutgoing(): array {
 		// Collapse group fan-out children (owner→member@master TYPE_REMOTE rows)
 		// into their parent group share.
@@ -210,7 +210,7 @@ class SharesRootCollection implements ICollection {
 				}
 				$seenNodes[$node->getId()] = true;
 				$name = $this->uniqueName($node->getName(), array_keys($children));
-				$children[$name] = new ShareNode($node, $name, true);
+				$children[$name] = ShareDirectory::wrap($node, $name, true);
 			}
 		}
 		ksort($children);
