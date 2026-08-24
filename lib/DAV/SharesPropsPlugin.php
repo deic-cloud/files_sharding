@@ -56,23 +56,26 @@ class SharesPropsPlugin extends ServerPlugin {
 			$propFind->handle('{http://owncloud.org/ns}id', fn () => $this->syntheticId($node));
 			// Structural containers: readable, nothing else (shares can't be
 			// created by MKCOL/PUT here).
-			$propFind->handle('{http://owncloud.org/ns}permissions', fn () => 'M');
+			$propFind->handle('{http://owncloud.org/ns}permissions', fn () => 'G');
 		}
 	}
 
 	/**
 	 * NC-style permission letters from the wrapped node's permission mask.
-	 * S/R (shared/shareable) deliberately omitted — share management doesn't
-	 * happen on this surface. M marks the share root as a mount, which stops
-	 * the client from attempting cross-mount moves.
+	 * S/R (shared/shareable) omitted — share management doesn't happen on this
+	 * surface. 'M' (mounted/external) DELIBERATELY omitted everywhere: the
+	 * desktop client's default "confirm external storages" setting silently
+	 * EXCLUDES M-flagged folders from sync until manually confirmed — exactly
+	 * the green-but-empty failure observed. This endpoint presents shares as
+	 * plain directories, like the old service did.
 	 */
 	private function davPermissions(ShareNode $node): string {
 		$fileNode = $node->getNode();
 		$mask = $fileNode->getPermissions();
 		$isFile = $fileNode instanceof File;
 		$p = '';
-		if ($node->isShareRoot()) {
-			$p .= 'M';
+		if ($mask & \OCP\Constants::PERMISSION_READ) {
+			$p .= 'G';
 		}
 		if (!$isFile && ($mask & \OCP\Constants::PERMISSION_CREATE)) {
 			$p .= 'CK';
