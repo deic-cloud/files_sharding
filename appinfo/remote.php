@@ -33,28 +33,97 @@ $subPath = str_starts_with($uriPath, $prefix)
 	? substr($uriPath, strlen($prefix))
 	: '';
 
-// ── Pass-through redirects for sync-client discovery endpoints ──────────────
-// The desktop sync client (ownCloud/NC) probes status.php, OCS, and login
-// endpoints relative to the configured server root.  We redirect those to the
-// real NC paths so no web-server rewrite rules are needed.
+// ── Proxied sync-client discovery endpoints ─────────────────────────────────
+// The desktop sync client, configured with server URL …/remote.php/sharingin,
+// probes status.php, OCS and login endpoints RELATIVE to that URL. Newer NC
+// clients do NOT follow redirects across endpoints (sites/developer docs,
+// Feb-2025 update), so we PROXY these against our own public URL instead —
+// the model the old service used, proven to work with current Windows clients.
+//
+// Two responses are rewritten in flight:
+//  * login/v2/poll: its "server" field is the bare server root; a client that
+//    adopts it would silently sync the DEFAULT endpoint (own files, shares
+//    concealed) instead of sharingin. Rewrite it to the sharingin base.
+//  * capabilities: strip dav "chunking"/"bulkupload" so large uploads arrive
+//    as plain PUTs into our tree rather than chunked to /remote.php/dav/
+//    uploads/, which this endpoint does not serve.
 
-if ($subPath === 'status.php') {
-	header('Location: /status.php', true, 302);
+/** Proxy $subPath against this node's own public URL and stream the reply. */
+function fsh_selfproxy(string $subPath): never {
+	$config  = \OC::$server->get(\OCP\IConfig::class);
+	$base    = rtrim((string)$config->getSystemValue('overwrite.cli.url', ''), '/');
+	$verify  = (bool)$config->getSystemValue('files_sharding_verify_ssl', true);
+	$qs      = ($_SERVER['QUERY_STRING'] ?? '') !== '' ? '?' . $_SERVER['QUERY_STRING'] : '';
+	$url     = $base . '/' . $subPath . $qs;
+	$method  = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
+	$headers = [];
+	foreach (['Authorization', 'Content-Type', 'Accept', 'OCS-APIREQUEST', 'User-Agent', 'Cookie', 'requesttoken'] as $h) {
+		$key = 'HTTP_' . strtoupper(str_replace('-', '_', $h));
+		if ($h === 'Content-Type') {
+			$key = 'CONTENT_TYPE';
+		}
+		if (isset($_SERVER[$key]) && $_SERVER[$key] !== '') {
+			$headers[] = $h . ': ' . $_SERVER[$key];
+		}
+	}
+
+	$ch = curl_init($url);
+	curl_setopt_array($ch, [
+		CURLOPT_CUSTOMREQUEST  => $method,
+		CURLOPT_HTTPHEADER     => $headers,
+		CURLOPT_RETURNTRANSFER => true,
+		CURLOPT_FOLLOWLOCATION => false,
+		CURLOPT_SSL_VERIFYPEER => $verify,
+		CURLOPT_SSL_VERIFYHOST => $verify ? 2 : 0,
+		CURLOPT_TIMEOUT        => 30,
+	]);
+	if (!in_array($method, ['GET', 'HEAD'], true)) {
+		curl_setopt($ch, CURLOPT_POSTFIELDS, file_get_contents('php://input'));
+	}
+	$body  = curl_exec($ch);
+	$code  = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+	$ctype = (string)curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+	curl_close($ch);
+
+	if ($body === false) {
+		http_response_code(502);
+		exit;
+	}
+
+	// Rewrite login/v2 poll result: keep the client on the sharingin endpoint.
+	if (str_starts_with($subPath, 'index.php/login/v2') && $code === 200 && $body !== '') {
+		$data = json_decode($body, true);
+		if (is_array($data) && isset($data['server'])) {
+			$data['server'] = $base . '/remote.php/' . (str_contains($_SERVER['REQUEST_URI'] ?? '', 'sharingout') ? 'sharingout' : 'sharingin');
+			$body = json_encode($data);
+		}
+	}
+
+	// Strip chunked-upload capabilities (see header comment).
+	if (str_contains($subPath, 'cloud/capabilities') && $code === 200 && $body !== '') {
+		$data = json_decode($body, true);
+		if (is_array($data) && isset($data['ocs']['data']['capabilities']['dav'])) {
+			unset(
+				$data['ocs']['data']['capabilities']['dav']['chunking'],
+				$data['ocs']['data']['capabilities']['dav']['bulkupload'],
+			);
+			$body = json_encode($data);
+		}
+	}
+
+	http_response_code($code);
+	if ($ctype !== '') {
+		header('Content-Type: ' . $ctype);
+	}
+	echo $body;
 	exit;
 }
 
-if (str_starts_with($subPath, 'ocs/') || $subPath === 'ocs') {
-	$qs = isset($_SERVER['QUERY_STRING']) && $_SERVER['QUERY_STRING'] !== ''
-		? '?' . $_SERVER['QUERY_STRING'] : '';
-	header('Location: /' . $subPath . $qs, true, 307);
-	exit;
-}
-
-if (str_starts_with($subPath, 'index.php/') || $subPath === 'index.php') {
-	$qs = isset($_SERVER['QUERY_STRING']) && $_SERVER['QUERY_STRING'] !== ''
-		? '?' . $_SERVER['QUERY_STRING'] : '';
-	header('Location: /' . $subPath . $qs, true, 307);
-	exit;
+if ($subPath === 'status.php'
+	|| str_starts_with($subPath, 'ocs/') || $subPath === 'ocs'
+	|| str_starts_with($subPath, 'index.php/') || $subPath === 'index.php') {
+	fsh_selfproxy($subPath);
 }
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
