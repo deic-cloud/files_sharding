@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace OCA\FilesSharding\DAV;
 
-use OCP\Files\File;
-use OCP\Files\Folder;
-use OCP\Files\Node;
+use OCA\FilesSharding\Service\GroupShareFanoutService;
+use OCA\FilesSharding\Service\ShardingService;
+use OCP\DB\QueryBuilder\IQueryBuilder;
+use OCP\Files\IRootFolder;
+use OCP\IDBConnection;
 use OCP\Share\IManager as IShareManager;
 use OCP\Share\IShare;
 use Sabre\DAV\Exception\Forbidden;
@@ -16,27 +18,37 @@ use Sabre\DAV\ICollection;
 /**
  * Root DAV collection for /remote.php/sharingin/ and /remote.php/sharingout/.
  *
- * sharingin  — files/folders shared WITH $userId (incoming shares).
- * sharingout — files/folders shared BY $userId with others (outgoing shares).
+ * sharingin  — files/folders shared WITH $userId, grouped one directory per
+ *              sharing owner (old-service model, sites/developer docs):
+ *                /sharingin/<owner_id>/<shared folder or file>
+ *              Sources BOTH kinds of received shares in the sharded cluster:
+ *              local oc_share rows (same-silo owners, incl. usergroup children)
+ *              AND oc_share_external mirrors (cross-silo / federated owners —
+ *              in this cluster that is most of them; core's getSharedWith()
+ *              never sees those, which is why the old flat implementation
+ *              listed nothing).
  *
- * Both are read-only. The collection is flat: each accepted share's root
- * node appears as a direct child, named by the share's node name. If two
- * shares have the same name the later one gets "(2)" appended.
+ * sharingout — files/folders $userId has shared with others, flat, one entry
+ *              per distinct node (a folder shared with three people appears
+ *              once). Group-share fan-out children are collapsed into their
+ *              parent group share.
+ *
+ * Both are READ/WRITE inside the shared nodes — this is the collaboration
+ * surface (see ShareNode). Deliberately NOT reached by the default-endpoint
+ * conceal gate: syncing/mounting shares via these URLs is a conscious act.
  */
 class SharesRootCollection implements ICollection {
-	/** @var array<string, ShareNode>|null */
+	/** @var array<string, ICollection|ShareNode>|null */
 	private ?array $childCache = null;
 
-	private const INCOMING_TYPES = [
-		IShare::TYPE_USER,
-		IShare::TYPE_GROUP,
-		IShare::TYPE_REMOTE,
-	];
-
 	public function __construct(
-		private string        $userId,
-		private bool          $incoming,   // true = sharingin, false = sharingout
-		private IShareManager $shareManager,
+		private string                  $userId,
+		private bool                    $incoming,   // true = sharingin, false = sharingout
+		private IShareManager           $shareManager,
+		private IRootFolder             $rootFolder,
+		private IDBConnection           $db,
+		private ShardingService         $shardingService,
+		private GroupShareFanoutService $fanout,
 	) {
 	}
 
@@ -44,12 +56,11 @@ class SharesRootCollection implements ICollection {
 		return $this->incoming ? 'sharingin' : 'sharingout';
 	}
 
-	/** @return ShareNode[] */
 	public function getChildren(): array {
 		return array_values($this->buildChildren());
 	}
 
-	public function getChild($name): ShareNode {
+	public function getChild($name) {
 		$children = $this->buildChildren();
 		if (!isset($children[$name])) {
 			throw new NotFound("$name not found");
@@ -61,22 +72,22 @@ class SharesRootCollection implements ICollection {
 		return isset($this->buildChildren()[$name]);
 	}
 
-	// ── Read-only stubs ───────────────────────────────────────────────────────
+	// ── Read-only structure ───────────────────────────────────────────────────
 
 	public function createFile($name, $data = null): never {
-		throw new Forbidden('sharingin/sharingout is read-only');
+		throw new Forbidden('Files can only be created inside a shared folder');
 	}
 
 	public function createDirectory($name): never {
-		throw new Forbidden('sharingin/sharingout is read-only');
+		throw new Forbidden('Folders can only be created inside a shared folder');
 	}
 
 	public function delete(): never {
-		throw new Forbidden('sharingin/sharingout is read-only');
+		throw new Forbidden('This endpoint cannot be deleted');
 	}
 
 	public function setName($name): never {
-		throw new Forbidden('sharingin/sharingout is read-only');
+		throw new Forbidden('This endpoint cannot be renamed');
 	}
 
 	public function getLastModified(): int {
@@ -85,57 +96,125 @@ class SharesRootCollection implements ICollection {
 
 	// ── Internals ─────────────────────────────────────────────────────────────
 
-	/** @return array<string, ShareNode> */
+	/** @return array<string, ICollection|ShareNode> */
 	private function buildChildren(): array {
 		if ($this->childCache !== null) {
 			return $this->childCache;
 		}
+		$this->childCache = $this->incoming ? $this->buildIncoming() : $this->buildOutgoing();
+		return $this->childCache;
+	}
 
-		$shares = $this->fetchShares();
-		$children = [];
-		foreach ($shares as $share) {
+	/** @return array<string, OwnerCollection> owner id => collection */
+	private function buildIncoming(): array {
+		$userFolder = $this->rootFolder->getUserFolder($this->userId);
+
+		// owner id => [share name => ShareNode]
+		$byOwner = [];
+		$add = function (string $owner, string $name, \OCP\Files\Node $node) use (&$byOwner): void {
+			$name = $this->uniqueName($name, array_keys($byOwner[$owner] ?? []));
+			$byOwner[$owner][$name] = new ShareNode($node, $name, true);
+		};
+
+		// (1) Federated mirrors — cross-silo (and genuinely external) owners.
+		$qb = $this->db->getQueryBuilder();
+		$qb->select('owner', 'remote', 'name', 'mountpoint')
+		   ->from('share_external')
+		   ->where($qb->expr()->eq('user', $qb->createNamedParameter($this->userId)))
+		   ->andWhere($qb->expr()->eq('accepted', $qb->createNamedParameter(IShare::STATUS_ACCEPTED, IQueryBuilder::PARAM_INT)));
+		$cur = $qb->executeQuery();
+		$rows = $cur->fetchAll();
+		$cur->closeCursor();
+
+		foreach ($rows as $row) {
 			try {
-				$node = $share->getNode();
+				$node = $userFolder->get(ltrim((string)$row['mountpoint'], '/'));
+			} catch (\Throwable) {
+				continue; // mount not materialised — skip rather than 500 the listing
+			}
+			$owner  = (string)$row['owner'];
+			$remote = (string)$row['remote'];
+			if (!$this->shardingService->isClusterServer($remote)) {
+				// External federation partner: qualify the owner with their host so
+				// bob@uni-x.eu and bob@uni-y.eu don't merge.
+				$owner .= '@' . preg_replace('#^https?://#', '', rtrim($remote, '/'));
+			}
+			// Present the share's own name, not the (possibly "(2)"-suffixed)
+			// local mountpoint — inside an owner directory the original name is
+			// almost always unique.
+			$name = trim((string)$row['name'], '/') ?: $node->getName();
+			$add($owner, $name, $node);
+		}
+
+		// (2) Local shares — owners co-resident on this node (direct or via a
+		// group). Deduplicate by node: a folder reachable through both a user
+		// share and a group share appears once.
+		$seenNodes = [];
+		foreach ([IShare::TYPE_USER, IShare::TYPE_GROUP] as $type) {
+			try {
+				$batch = $this->shareManager->getSharedWith($this->userId, $type, null, -1, 0);
 			} catch (\Throwable) {
 				continue;
 			}
-			$name = $this->uniqueName($node->getName(), array_keys($children));
-			$children[$name] = new ShareNode($node, $name, $this->incoming);
+			foreach ($batch as $share) {
+				if ($share->getStatus() !== IShare::STATUS_ACCEPTED) {
+					continue;
+				}
+				try {
+					$node = $share->getNode();
+				} catch (\Throwable) {
+					continue;
+				}
+				if (isset($seenNodes[$node->getId()])) {
+					continue;
+				}
+				$seenNodes[$node->getId()] = true;
+				$add((string)$share->getShareOwner(), $node->getName(), $node);
+			}
 		}
-		$this->childCache = $children;
-		return $children;
+
+		ksort($byOwner);
+		$out = [];
+		foreach ($byOwner as $owner => $children) {
+			ksort($children);
+			$out[$owner] = new OwnerCollection($owner, $children);
+		}
+		return $out;
 	}
 
-	/** @return IShare[] */
-	private function fetchShares(): array {
-		$shares = [];
-		if ($this->incoming) {
-			foreach (self::INCOMING_TYPES as $type) {
-				try {
-					$batch = $this->shareManager->getSharedWith(
-						$this->userId, $type, null, -1, 0
-					);
-					foreach ($batch as $share) {
-						// Only accepted shares
-						if ($share->getStatus() === IShare::STATUS_ACCEPTED) {
-							$shares[] = $share;
-						}
-					}
-				} catch (\Throwable) {
-				}
+	/** @return array<string, ShareNode> name => node (flat, deduped by node) */
+	private function buildOutgoing(): array {
+		// Collapse group fan-out children (owner→member@master TYPE_REMOTE rows)
+		// into their parent group share.
+		$fanoutIds = array_fill_keys($this->fanout->fanoutShareIdsForOwner($this->userId), true);
+
+		$children  = [];
+		$seenNodes = [];
+		foreach ([IShare::TYPE_USER, IShare::TYPE_GROUP, IShare::TYPE_LINK, IShare::TYPE_REMOTE] as $type) {
+			try {
+				$batch = $this->shareManager->getSharesBy($this->userId, $type, null, false, -1, 0);
+			} catch (\Throwable) {
+				continue;
 			}
-		} else {
-			foreach ([IShare::TYPE_USER, IShare::TYPE_GROUP, IShare::TYPE_REMOTE] as $type) {
-				try {
-					$shares = array_merge(
-						$shares,
-						$this->shareManager->getSharesBy($this->userId, $type, null, false, -1, 0)
-					);
-				} catch (\Throwable) {
+			foreach ($batch as $share) {
+				if (isset($fanoutIds[(int)$share->getId()])) {
+					continue;
 				}
+				try {
+					$node = $share->getNode();
+				} catch (\Throwable) {
+					continue;
+				}
+				if (isset($seenNodes[$node->getId()])) {
+					continue;
+				}
+				$seenNodes[$node->getId()] = true;
+				$name = $this->uniqueName($node->getName(), array_keys($children));
+				$children[$name] = new ShareNode($node, $name, true);
 			}
 		}
-		return $shares;
+		ksort($children);
+		return $children;
 	}
 
 	private function uniqueName(string $base, array $existing): string {

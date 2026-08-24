@@ -8,6 +8,7 @@ use OCA\DAV\Events\SabrePluginAddEvent;
 use OCA\FederatedFileSharing\Events\FederatedShareAddedEvent;
 use OCA\FilesSharding\Auth\IpAuthBackend;
 use OCA\FilesSharding\Auth\X509Backend;
+use OCA\FilesSharding\Files\ConcealedGrantStorage;
 use OCA\FilesSharding\Listener\CspListener;
 use OCA\FilesSharding\Listener\ExternalShareScanWarmer;
 use OCA\FilesSharding\Listener\GroupMembershipListener;
@@ -107,5 +108,73 @@ class Application extends App implements IBootstrap {
 		// yields when a client-cert DN is present.
 		$userManager->registerBackend($context->getServerContainer()->get(X509Backend::class));
 		$userManager->registerBackend($context->getServerContainer()->get(IpAuthBackend::class));
+
+		$this->concealSharesFromDavClients($context);
+	}
+
+	/**
+	 * Keep received shares and grant folders OFF the default WebDAV surface for
+	 * external clients (sync clients, curl, mounted drives) — the old-service
+	 * model: HOME_URL/files is the user's OWN data; shares are reached through
+	 * the dedicated /remote.php/sharingin//sharingout endpoints, and grant
+	 * folders through /remote.php/user_group_admin/{gid}/.
+	 *
+	 * Why: a group owner sharing research data must be able to assume it does
+	 * NOT silently replicate to every member's laptop via a sync client.
+	 * Syncing a share is a CONSCIOUS act (configuring the dedicated URL), never
+	 * a default. It also kills the mountpoint rename churn and the
+	 * "unknown folder appeared → user deletes it" hazard on sync surfaces.
+	 *
+	 * Gate: only requests to the default DAV endpoints (/remote.php/webdav,
+	 * /remote.php/dav) that carry an Authorization header. The web UI
+	 * authenticates by session cookie (no Authorization header), so the Files
+	 * app keeps showing shares ("All files" / "Shared with you") unchanged.
+	 * Our /sharingin//sharingout/grants endpoints don't match the path gate,
+	 * so the share mounts remain available THERE.
+	 *
+	 * Mechanics: received shares (local usergroup children AND federated
+	 * mirrors) are mounts implementing OCA\Files_Sharing\ISharedMountPoint →
+	 * one mount filter drops both kinds from the filesystem for this request.
+	 * Grant folders are plain home-storage folders, so they're hidden at the
+	 * filecache level (ConcealedGrantStorage/Cache) — DAV listings and path
+	 * lookups are served from the cache, so this both strips the listing entry
+	 * and 404s direct access.
+	 */
+	private function concealSharesFromDavClients(IBootContext $context): void {
+		$server = $context->getServerContainer();
+		try {
+			$request = $server->get(\OCP\IRequest::class);
+			$uri = $request->getRequestUri();
+			if (!preg_match('#^/remote\.php/(webdav|dav)(/|$)#', $uri)) {
+				return;
+			}
+			if ($request->getHeader('Authorization') === '') {
+				return; // browser session (cookie auth) — web UI keeps shares
+			}
+
+			// Hide received-share mounts (local + federated).
+			if (interface_exists(\OCA\Files_Sharing\ISharedMountPoint::class)) {
+				$server->get(\OCP\Files\Config\IMountProviderCollection::class)
+					->registerMountFilter(
+						static fn (\OCP\Files\Mount\IMountPoint $mount, \OCP\IUser $user): bool
+							=> !($mount instanceof \OCA\Files_Sharing\ISharedMountPoint)
+					);
+			}
+
+			// Hide the grant-folder root inside home storages.
+			\OC\Files\Filesystem::addStorageWrapper(
+				'files_sharding_conceal_grants',
+				static function (string $mountPoint, \OCP\Files\Storage\IStorage $storage) {
+					if ($storage->instanceOfStorage(\OCP\Files\IHomeStorage::class)) {
+						return new ConcealedGrantStorage(['storage' => $storage]);
+					}
+					return $storage;
+				},
+			);
+		} catch (\Throwable $e) {
+			// Concealment is a hardening layer — never break DAV over it.
+			$server->get(\Psr\Log\LoggerInterface::class)
+				->warning('files_sharding: conceal gate failed: ' . $e->getMessage());
+		}
 	}
 }

@@ -111,6 +111,42 @@ Invariants:
   cleaned later in a user context or by the reconcile job above. Baked into the
   mfsbsd image (`patch_external_manager_nulluser.pl`) since it is a core file.
 
+## The DAV surface: shares live OFF the default endpoint (2026-08-24)
+
+NC's stock policy mounts received shares (and our grant folders) directly in the
+user's home, next to their own files. On this platform that is wrong three ways
+(Frederik's long-standing grievances, same as the old service): **privacy** — a
+group owner sharing research data must be able to assume it does not silently
+replicate to every member's laptop via a sync client; **confusion** — unknown
+folders appear in the home and get renamed ("(2)" churn) or deleted by puzzled
+users; **collaboration model** — we encourage collaborating on a shared *data
+directory* (one party uploads, others process/consume), NOT sync-client
+co-editing of documents, whose conflict handling is a support nightmare.
+
+The model (old-service, sites/developer docs):
+
+- `HOME_URL/files` (default WebDAV) = the user's OWN data only.
+- `/remote.php/sharingin/<owner_id>/<shared item>` — everything shared WITH the
+  user, one directory per sharing owner. **Read/write** (the collaboration
+  surface); enforcement = each share's permission mask. Backed by BOTH local
+  `oc_share` rows and `oc_share_external` mirrors (in this cluster, most shares).
+  Owner-grouping also dissolves the name-collision renaming. Syncing this URL is
+  possible only as a conscious act (nice-to-have; newer NC desktop clients don't
+  follow cross-endpoint redirects, so treat sync support as best-effort).
+- `/remote.php/sharingout/` — flat listing of what the user has shared
+  (fan-out children collapsed into their group share).
+- `/remote.php/user_group_admin/{gid}/` — grant folders (existing endpoint).
+
+Enforcement (`Application::concealSharesFromDavClients`): on the default DAV
+endpoints (`/remote.php/webdav`, `/remote.php/dav`) for requests carrying an
+`Authorization` header (sync clients, curl, mounted drives — the web UI uses
+session cookies and is untouched), a mount filter drops every
+`ISharedMountPoint` (local + federated received shares) and a home-storage cache
+wrapper conceals `files/.uga_grants` (strips listings AND 404s direct access).
+The web Files app keeps its stock view ("All files" / "Shared with you") —
+accepted as-is. Consequence to know: NC mobile apps authenticate like sync
+clients, so they see own files only — consistent with the old service.
+
 ## Accepted residual gaps (documented, not bugs)
 
 - **Dangling storages.** Pruning a mirror row leaves its `oc_storages` /

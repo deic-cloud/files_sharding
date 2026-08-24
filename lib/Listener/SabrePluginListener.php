@@ -10,6 +10,7 @@ use OCA\FilesSharding\Service\ShardingService;
 use OCP\EventDispatcher\Event;
 use OCP\EventDispatcher\IEventListener;
 use OCP\IRequest;
+use OCP\IUserSession;
 use Psr\Log\LoggerInterface;
 
 /** @implements IEventListener<SabrePluginAddEvent> */
@@ -17,6 +18,7 @@ class SabrePluginListener implements IEventListener {
 	public function __construct(
 		private ShardingService $shardingService,
 		private IRequest        $request,
+		private IUserSession    $userSession,
 		private LoggerInterface $logger,
 	) {
 	}
@@ -26,7 +28,7 @@ class SabrePluginListener implements IEventListener {
 			return;
 		}
 		$event->getServer()->addPlugin(
-			new FolderFilterPlugin($this->shardingService, $this->request, $this->logger)
+			new FolderFilterPlugin($this->shardingService, $this->request, $this->userSession, $this->logger)
 		);
 	}
 }

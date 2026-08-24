@@ -105,8 +105,19 @@ if (str_starts_with($subPath, 'remote.php/dav/files/')) {
 
 // ── Build and run Sabre DAV server ───────────────────────────────────────────
 
-$shareManager = \OC::$server->get(IShareManager::class);
-$root = new SharesRootCollection($userId, $incoming, $shareManager);
+// Writes go through the user's filesystem (mounted federated shares proxy to
+// the owner's silo with the share token) — set it up before building the tree.
+\OC_Util::setupFS($userId);
+
+$root = new SharesRootCollection(
+	$userId,
+	$incoming,
+	\OC::$server->get(IShareManager::class),
+	\OC::$server->get(\OCP\Files\IRootFolder::class),
+	\OC::$server->get(\OCP\IDBConnection::class),
+	\OC::$server->get(\OCA\FilesSharding\Service\ShardingService::class),
+	\OC::$server->get(\OCA\FilesSharding\Service\GroupShareFanoutService::class),
+);
 
 $server = new Server($root);
 $server->setBaseUri($davBaseUri);

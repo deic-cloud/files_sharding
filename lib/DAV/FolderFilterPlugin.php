@@ -6,6 +6,7 @@ namespace OCA\FilesSharding\DAV;
 
 use OCA\FilesSharding\Service\ShardingService;
 use OCP\IRequest;
+use OCP\IUserSession;
 use Psr\Log\LoggerInterface;
 use Sabre\DAV\Exception\NotFound;
 use Sabre\DAV\Server;
@@ -28,6 +29,7 @@ class FolderFilterPlugin extends ServerPlugin {
 	public function __construct(
 		private ShardingService $shardingService,
 		private IRequest        $ncRequest,
+		private IUserSession    $userSession,
 		private LoggerInterface $logger,
 	) {
 	}
@@ -39,13 +41,27 @@ class FolderFilterPlugin extends ServerPlugin {
 	public function beforeMethod(RequestInterface $request, ResponseInterface $response): void {
 		$path = $this->stripLeadingSlash($request->getPath());
 
-		// Only act on user-file paths: files/{userId}/{folder}[/...]
-		if (!preg_match('#^files/([^/]+)/([^/]+)#u', $path, $m)) {
+		// Modern endpoint: files/{userId}/{folder}[/...]
+		if (preg_match('#^files/([^/]+)/([^/]+)#u', $path, $m)) {
+			$userId = $m[1];
+			$folder = '/' . $m[2];
+		} elseif (preg_match('#^/remote\.php/webdav(/|$)#', $this->ncRequest->getRequestUri())
+			&& preg_match('#^([^/]+)#u', $path, $m)) {
+			// LEGACY endpoint (/remote.php/webdav): Sabre paths are RELATIVE to the
+			// session user's home ("media/x.txt", no files/{uid} prefix), so the
+			// pattern above never matched — only_from rules were silently
+			// bypassable by pointing a client at the legacy URL. Resolve the user
+			// from the session instead.
+			$user = $this->userSession->getUser();
+			if ($user === null) {
+				return;
+			}
+			$userId = $user->getUID();
+			$folder = '/' . $m[1];
+		} else {
 			return;
 		}
 
-		$userId    = $m[1];
-		$folder    = '/' . $m[2];
 		$clientIp  = $this->ncRequest->getRemoteAddress();
 		$userAgent = $this->ncRequest->getHeader('User-Agent');
 

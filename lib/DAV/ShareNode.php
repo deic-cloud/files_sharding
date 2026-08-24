@@ -7,25 +7,33 @@ namespace OCA\FilesSharding\DAV;
 use OCP\Files\File;
 use OCP\Files\Folder;
 use OCP\Files\Node;
+use OCP\Files\NotPermittedException;
 use Sabre\DAV\Exception\Forbidden;
 use Sabre\DAV\Exception\NotFound;
 use Sabre\DAV\ICollection;
 use Sabre\DAV\IFile;
 
 /**
- * Sabre node wrapping an \OCP\Files\Node from a share.
+ * Sabre node wrapping an \OCP\Files\Node reached through /sharingin or
+ * /sharingout.
  *
- * For files: implements IFile (read-only for incoming, full for outgoing).
- * For folders: implements ICollection, recursively wrapping children.
+ * READ/WRITE by design: shared data directories are the platform's core
+ * collaboration surface (one party uploads data, others consume, process and
+ * upload results). Enforcement is delegated to the underlying node — the mount
+ * carries the share's permission mask, so a read-only share throws
+ * NotPermittedException, which maps to DAV 403. No permission logic is
+ * duplicated here.
  *
- * Read-only flag is inherited for sharingin; sharingout is also read-only
- * here (it is an audit view, not a write path).
+ * The node presented at the share root ($isShareRoot) refuses rename/delete:
+ * its name is the share's presented name (and its backing node is a mountpoint
+ * or the owner's own folder), so renaming/deleting it is share management, not
+ * file collaboration — that belongs to the sharing UI/API.
  */
 class ShareNode implements ICollection, IFile {
 	public function __construct(
 		private Node   $node,
 		private string $name,
-		private bool   $readOnly = true,
+		private bool   $isShareRoot = false,
 	) {
 	}
 
@@ -47,11 +55,23 @@ class ShareNode implements ICollection, IFile {
 		if (!($this->node instanceof File)) {
 			throw new Forbidden('Not a file');
 		}
-		return $this->node->fopen('r');
+		try {
+			return $this->node->fopen('r');
+		} catch (NotPermittedException) {
+			throw new Forbidden('No read permission');
+		}
 	}
 
-	public function put($data): string {
-		throw new Forbidden('Read-only');
+	public function put($data): ?string {
+		if (!($this->node instanceof File)) {
+			throw new Forbidden('Not a file');
+		}
+		try {
+			$this->node->putContent($data);
+		} catch (NotPermittedException) {
+			throw new Forbidden('No write permission on this share');
+		}
+		return '"' . $this->node->getEtag() . '"';
 	}
 
 	public function getSize(): int {
@@ -70,7 +90,7 @@ class ShareNode implements ICollection, IFile {
 			return [];
 		}
 		return array_values(array_map(
-			fn(Node $child) => new ShareNode($child, $child->getName(), $this->readOnly),
+			fn (Node $child) => new ShareNode($child, $child->getName()),
 			$this->node->getDirectoryListing()
 		));
 	}
@@ -81,7 +101,7 @@ class ShareNode implements ICollection, IFile {
 		}
 		try {
 			$child = $this->node->get($name);
-			return new ShareNode($child, $child->getName(), $this->readOnly);
+			return new ShareNode($child, $child->getName());
 		} catch (\Throwable) {
 			throw new NotFound($name);
 		}
@@ -94,34 +114,53 @@ class ShareNode implements ICollection, IFile {
 		return $this->node->nodeExists($name);
 	}
 
-	// ── Write stubs ───────────────────────────────────────────────────────────
-
-	public function createFile($name, $data = null): string {
-		if ($this->readOnly || !($this->node instanceof Folder)) {
-			throw new Forbidden('Read-only');
+	public function createFile($name, $data = null): ?string {
+		if (!($this->node instanceof Folder)) {
+			throw new Forbidden('Not a folder');
 		}
-		$file = $this->node->newFile($name);
-		if ($data !== null) {
-			$file->putContent($data);
+		try {
+			$file = $this->node->newFile($name);
+			if ($data !== null) {
+				$file->putContent($data);
+			}
+			return '"' . $file->getEtag() . '"';
+		} catch (NotPermittedException) {
+			throw new Forbidden('No create permission on this share');
 		}
-		return '"' . $file->getEtag() . '"';
 	}
 
 	public function createDirectory($name): void {
-		if ($this->readOnly || !($this->node instanceof Folder)) {
-			throw new Forbidden('Read-only');
+		if (!($this->node instanceof Folder)) {
+			throw new Forbidden('Not a folder');
 		}
-		$this->node->newFolder($name);
+		try {
+			$this->node->newFolder($name);
+		} catch (NotPermittedException) {
+			throw new Forbidden('No create permission on this share');
+		}
 	}
 
 	public function delete(): void {
-		if ($this->readOnly) {
-			throw new Forbidden('Read-only');
+		if ($this->isShareRoot) {
+			throw new Forbidden('The share itself cannot be deleted here — unshare it instead');
 		}
-		$this->node->delete();
+		try {
+			$this->node->delete();
+		} catch (NotPermittedException) {
+			throw new Forbidden('No delete permission on this share');
+		}
 	}
 
 	public function setName($name): void {
-		throw new Forbidden('Read-only');
+		if ($this->isShareRoot) {
+			throw new Forbidden('The share itself cannot be renamed here');
+		}
+		try {
+			$parent = dirname($this->node->getPath());
+			$this->node->move($parent . '/' . $name);
+			$this->name = $name;
+		} catch (NotPermittedException) {
+			throw new Forbidden('No rename permission on this share');
+		}
 	}
 }

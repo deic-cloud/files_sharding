@@ -105,13 +105,18 @@ Users are identified as `user@masterhost` in federation. The master proxies shar
 
 Sharing is **not** distributed state. The **master is the single authority** and is consulted to *resolve* what a user can access; each silo holds only a **derived cache** that it reconciles against the master. This mirrors the pre-Nextcloud ScienceData design (sharing as a function of a few authoritative tables) and is what keeps silo replacement, user migration, and downtime from being sharing problems: the worst case is staleness until the next reconcile, never permanent drift.
 
-- **Authority (master):** incoming user federated shares aggregate in the master's `oc_share_external`; **group shares** are registered in a dedicated `files_sharding_group_shares` table (one row per group share). Group membership is already authoritative on the master (`user_group_admin`).
-- **Resolver:** `internal/users/{userId}/external-shares` returns a user's *direct* incoming shares **plus** every group share whose group the user belongs to (expanded on demand via `IGroupManager` — a group share is **one** registry row, never fanned out per member).
-- **Cache (silo):** `ShareSyncService` materialises the resolver output as `oc_share_external` mounts, **fully reconciled** (add new / prune gone) on every refresh — login, each Files-app load (`SyncExternalSharesListener`), and an optional master→silo push for immediacy. Because the cache is *re-derived*, a wiped/reinstalled silo or a moved user simply re-resolves; a missed push self-heals on the next read.
+- **Authority (master):** incoming federated shares aggregate in the master's `oc_share_external`; the master's rows are **pull-validated** against the owning silos by `ShareAuthorityReconcileJob` (see `docs/share-lifecycle.md` — the canonical description of the share model, delivery, invariants and DAV surface).
+- **Group shares** are delivered by **per-member federated fan-out** (`GroupShareFanoutService`): one real federated child `owner→member@master` per cross-silo member, riding the ordinary OCM path with a proper per-recipient token — no public link, no owner impersonation. Reconcile is stateless and idempotent; membership changes re-reconcile via `GroupMembershipListener`.
+- **Cache (silo):** `ShareSyncService` materialises the master's export as `oc_share_external` mounts, **fully reconciled** (add new / prune gone) on every refresh — login, each Files-app load (`SyncExternalSharesListener`), and a master→silo push for immediacy.
 
-**Group shares — token delivery (no owner impersonation).** A group share has no NC access token, so on creation `GroupShareListener` mints a companion **link-share** token for the folder on the owner's node and records it in the registry row. A member's silo mounts the folder through the owner's public-webdav endpoint with that token — the same path user federated shares use. The token lives only in server-side rows (registry + silo caches) and is **never exposed to a user's browser**, so removing a leaver's mount fully removes their access. **Join/leave/unshare** need no per-member bookkeeping: they change what the resolver returns, and silos reconcile (join → mount appears on next resolve; leave/unshare → mount pruned; the companion link + registry row are removed on unshare).
+**WebDAV surface** — the default endpoint serves the user's OWN data only; shares are reached through dedicated endpoints (old-service model):
 
-> **Schema note:** the registry is its own table, `files_sharding_group_shares` (`Version007…`), deliberately **not** a column on `oc_share_external`: core's `ExternalShareMapper` does `SELECT *` from that table into a strict `ExternalShare` Entity, so any extra column throws "… is not a valid attribute" and breaks core's OCM **unshare** handling (empty value included). Because ScienceData deploys by file-copy + fpm-reload — which does **not** run migrations — the table is created via SQL / baked into firstboot on existing clusters; the migration covers fresh app-store installs.
+| Endpoint | Content |
+|---|---|
+| `/remote.php/webdav`, `/remote.php/dav/files/{uid}` | own files only for external clients (sync/curl/mounts); received shares + grant folders are concealed for requests with an `Authorization` header — the cookie-authenticated web UI keeps the stock view |
+| `/remote.php/sharingin/<owner_id>/<item>` | shares received, one dir per owner, **read/write** per share permissions |
+| `/remote.php/sharingout/` | what the user has shared, flat (fan-out children collapsed) |
+| `/remote.php/user_group_admin/{gid}/` | grant folders (user_group_admin app) |
 
 ## API
 
