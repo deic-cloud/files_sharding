@@ -195,6 +195,12 @@ $server->addPlugin(new \Sabre\DAV\Locks\Plugin(new \Sabre\DAV\Locks\Backend\File
 	sys_get_temp_dir() . '/nc_fsh_dav_locks'
 )));
 
+// Sync-client properties: collection etags (client aborts with "Folder is not
+// accessible on the server" without them) + oc:id/permissions/size.
+$server->addPlugin(new \OCA\FilesSharding\DAV\SharesPropsPlugin(
+	(string)\OC::$server->get(\OCP\IConfig::class)->getSystemValue('instanceid', '')
+));
+
 if (\OC::$server->get(\OCP\IConfig::class)->getSystemValue('debug', false)) {
 	$server->addPlugin(new \Sabre\DAV\Browser\Plugin());
 }

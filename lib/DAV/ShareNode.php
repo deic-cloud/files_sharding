@@ -41,6 +41,15 @@ class ShareNode implements ICollection, IFile {
 		return $this->name;
 	}
 
+	/** The wrapped OCP node (for SharesPropsPlugin). */
+	public function getNode(): Node {
+		return $this->node;
+	}
+
+	public function isShareRoot(): bool {
+		return $this->isShareRoot;
+	}
+
 	public function getLastModified(): int {
 		return $this->node->getMTime();
 	}
