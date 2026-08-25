@@ -30,8 +30,93 @@ class ApiController extends OCSController {
 		private CertificateService $certificateService,
 		private ISession           $session,
 		private GroupShareFanoutService $fanout,
+		private \OCP\Share\IManager $shareManager,
+		private \OCP\Files\IRootFolder $rootFolder,
 	) {
 		parent::__construct($appName, $request);
+	}
+
+	/**
+	 * Rename a public link share's token to a user-chosen name (old-service
+	 * feature: "type any name not already used by someone else"). The link then
+	 * answers at /s/<name> and /remote.php/public/<name>/. Uniqueness is
+	 * CLUSTER-wide: checked locally, then via the public endpoint's own probe
+	 * (asking the master, whose 404-handler fans out to every silo — or probing
+	 * the silos directly when we ARE the master).
+	 */
+	#[NoAdminRequired]
+	public function setLinkName(string $path, string $name): DataResponse {
+		$uid = $this->currentUserId();
+		if ($uid === '') {
+			return new DataResponse(['message' => 'Not logged in'], 401);
+		}
+		$name = trim($name);
+		if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/', $name)) {
+			return new DataResponse(['message' => 'Name must be 3-64 characters: letters, digits, dot, dash, underscore'], 400);
+		}
+
+		try {
+			$node = $this->rootFolder->getUserFolder($uid)->get(ltrim($path, '/'));
+		} catch (\Throwable) {
+			return new DataResponse(['message' => 'File not found'], 404);
+		}
+		$shares = $this->shareManager->getSharesBy($uid, \OCP\Share\IShare::TYPE_LINK, $node, false, 1, 0);
+		if ($shares === []) {
+			return new DataResponse(['message' => 'No public link exists for this file — create one first'], 404);
+		}
+		$share = $shares[0];
+		if ($share->getToken() === $name) {
+			return new DataResponse(['token' => $name, 'url' => $this->linkUrl($name)]);
+		}
+
+		// Taken locally?
+		try {
+			$this->shareManager->getShareByToken($name);
+			return new DataResponse(['message' => 'That name is already in use'], 409);
+		} catch (\OCP\Share\Exceptions\ShareNotFound) {
+		}
+		// Taken anywhere else in the cluster?
+		if ($this->linkNameTakenElsewhere($name)) {
+			return new DataResponse(['message' => 'That name is already in use'], 409);
+		}
+
+		$share->setToken($name);
+		$this->shareManager->updateShare($share);
+		return new DataResponse(['token' => $name, 'url' => $this->linkUrl($name)]);
+	}
+
+	private function linkUrl(string $token): string {
+		$own = rtrim((string)$this->config->getSystemValue('overwrite.cli.url', ''), '/');
+		return $own . '/index.php/s/' . $token;
+	}
+
+	private function linkNameTakenElsewhere(string $name): bool {
+		$probe = function (string $baseUrl) use ($name): bool {
+			$ch = curl_init(rtrim($baseUrl, '/') . '/remote.php/public/' . rawurlencode($name) . '/');
+			curl_setopt_array($ch, [
+				CURLOPT_CUSTOMREQUEST  => 'PROPFIND',
+				CURLOPT_HTTPHEADER     => ['Depth: 0'],
+				CURLOPT_NOBODY         => true,
+				CURLOPT_RETURNTRANSFER => true,
+				CURLOPT_SSL_VERIFYPEER => false,
+				CURLOPT_SSL_VERIFYHOST => false,
+				CURLOPT_TIMEOUT        => 5,
+			]);
+			curl_exec($ch);
+			$code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+			curl_close($ch);
+			return $code !== 0 && $code !== 404; // 207/401/… all mean "exists"
+		};
+		if ($this->shardingService->isMaster()) {
+			foreach ($this->shardingService->getAllServers() as $server) {
+				if (!$this->shardingService->isSelf($server) && $probe($server->getUrl())) {
+					return true;
+				}
+			}
+			return false;
+		}
+		$master = $this->shardingService->masterUrl();
+		return $master !== '' && $probe($master); // master's 404-handler probes every silo
 	}
 
 	private function currentUserId(): string {

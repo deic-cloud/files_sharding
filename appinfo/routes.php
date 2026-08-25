@@ -44,6 +44,8 @@ return [
 	],
 	'ocs' => [
 		// Servers
+		// Rename a public link's token to a user-chosen name (old-service parity)
+		['name' => 'api#setLinkName',  'url' => '/api/v1/link-name',        'verb' => 'PUT'],
 		['name' => 'api#getServers',   'url' => '/api/v1/servers',          'verb' => 'GET'],
 		['name' => 'api#addServer',    'url' => '/api/v1/servers',          'verb' => 'POST'],
 		['name' => 'api#updateServer', 'url' => '/api/v1/servers/{id}',     'verb' => 'PUT'],

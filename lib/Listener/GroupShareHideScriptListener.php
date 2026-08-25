@@ -29,5 +29,7 @@ class GroupShareHideScriptListener implements IEventListener {
 			return;
 		}
 		Util::addScript('files_sharding', 'group-share-hide');
+		// "Set public link name…" file action (custom link tokens, old-service parity)
+		Util::addScript('files_sharding', 'link-name');
 	}
 }
