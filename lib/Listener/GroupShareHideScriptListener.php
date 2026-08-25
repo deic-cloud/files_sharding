@@ -24,12 +24,22 @@ use OCP\Util;
  * @implements IEventListener<LoadAdditionalScriptsEvent>
  */
 class GroupShareHideScriptListener implements IEventListener {
+	public function __construct(
+		private \OCP\AppFramework\Services\IInitialState $initialState,
+		private \OCP\IConfig $config,
+	) {
+	}
+
 	public function handle(Event $event): void {
 		if (!($event instanceof LoadAdditionalScriptsEvent)) {
 			return;
 		}
 		Util::addScript('files_sharding', 'group-share-hide');
-		// "Set public link name…" file action (custom link tokens, old-service parity)
-		Util::addScript('files_sharding', 'link-name');
+		// Public-link creation popup (warning + URL with editable name + catalog
+		// checkbox), intercepting the stock sharing pane's "+". The warning text
+		// is deployment config (brand-neutral app default lives in the JS).
+		$this->initialState->provideInitialState('link_warning',
+			(string)$this->config->getSystemValue('files_sharding_link_warning', ''));
+		Util::addScript('files_sharding', 'public-link-popup');
 	}
 }
