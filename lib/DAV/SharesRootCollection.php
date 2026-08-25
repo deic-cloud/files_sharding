@@ -127,6 +127,9 @@ class SharesRootCollection implements ICollection {
 		$cur->closeCursor();
 
 		foreach ($rows as $row) {
+			if (str_starts_with((string)$row['mountpoint'], '/.uga_sponsored~')) {
+				continue; // sponsored-folder system share — its surface is /sponsoredfolders
+			}
 			try {
 				$node = $userFolder->get(ltrim((string)$row['mountpoint'], '/'));
 			} catch (\Throwable) {
@@ -164,6 +167,10 @@ class SharesRootCollection implements ICollection {
 				// group too — sharingin is what others share with ME; skip self.
 				if ((string)$share->getShareOwner() === $this->userId
 					|| (string)$share->getSharedBy() === $this->userId) {
+					continue;
+				}
+				// Sponsored-folder system shares live on /sponsoredfolders, not here.
+				if (str_starts_with((string)$share->getTarget(), '/.uga_sponsored~')) {
 					continue;
 				}
 				try {
@@ -206,9 +213,20 @@ class SharesRootCollection implements ICollection {
 				if (isset($fanoutIds[(int)$share->getId()])) {
 					continue;
 				}
+				// Sponsored-folder system share (member's grant-folder ROOT → group
+				// owner): app plumbing, not something the member shared. Local ones
+				// carry the parked target; federated ones are recognized by the node
+				// being a grant-folder root. (A member's deliberate share of a grant
+				// SUBfolder — bill's case — has a deeper path and is unaffected.)
+				if (str_starts_with((string)$share->getTarget(), '/.uga_sponsored~')) {
+					continue;
+				}
 				try {
 					$node = $share->getNode();
 				} catch (\Throwable) {
+					continue;
+				}
+				if (preg_match('#/files/\.uga_grants/[^/]+$#', $node->getPath())) {
 					continue;
 				}
 				if (isset($seenNodes[$node->getId()])) {

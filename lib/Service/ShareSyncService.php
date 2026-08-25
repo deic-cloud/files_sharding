@@ -102,9 +102,19 @@ class ShareSyncService {
 			// external/untrusted origin → stay PENDING with accept/decline
 			// (Frederik 2026-08-16 share-consistency compromise).
 			$isCluster  = $this->shardingService->isClusterServer($remote);
-			$mountpoint = $isCluster
-				? $this->uniqueMountpoint($userId, $name)
-				: '{{TemporaryMountPointName#' . trim($name, '/') . '}}';
+			// Sponsored-folder SYSTEM share (user_group_admin): a member's grant
+			// folder shared to the group OWNER. Park it at the hidden sponsored
+			// target (surfaced only by the owner's "Sponsored folders" view /
+			// /sponsoredfolders DAV — never in All files) and post NO notice: it's
+			// plumbing, not a person sharing something.
+			$sponsored  = $isCluster && $this->isSponsoredSystemShare($userId, $owner, trim($name, '/'));
+			if ($sponsored) {
+				$mountpoint = '/.uga_sponsored~' . trim($name, '/') . '~' . $owner;
+			} else {
+				$mountpoint = $isCluster
+					? $this->uniqueMountpoint($userId, $name)
+					: '{{TemporaryMountPointName#' . trim($name, '/') . '}}';
+			}
 			$accepted   = $isCluster ? IShare::STATUS_ACCEPTED : IShare::STATUS_PENDING;
 
 			try {
@@ -144,7 +154,9 @@ class ShareSyncService {
 					// Dispatch with the exact stored remote (trailing slash and all) so the
 					// warmer's `WHERE remote = …` matches this row and scans it.
 					$this->eventDispatcher->dispatchTyped(new FederatedShareAddedEvent($remote));
-					$this->notifyShareReceived($userId, (string)$id, $owner, trim($name, '/'));
+					if (!$sponsored) {
+						$this->notifyShareReceived($userId, (string)$id, $owner, trim($name, '/'));
+					}
 				} else {
 					$this->notifyPendingShare($userId, (string)$id, $ownerCloudId, trim($name, '/'));
 				}
@@ -233,6 +245,39 @@ class ShareSyncService {
 	}
 
 	/** A mountpoint ("/media") not already used by another of this user's mirrors; appends " (N)" on collision. */
+	/**
+	 * Is this incoming mirror the user_group_admin sponsored-folder SYSTEM share?
+	 * True when the RECIPIENT owns a grant group named exactly like the shared
+	 * folder and the SHARER is an accepted member of it. The uga tables are
+	 * synced to every node; fully guarded so files_sharding works without the
+	 * user_group_admin app (tables absent → false). Known accepted edge: a
+	 * member sharing a personal folder literally named like the group to its
+	 * owner would match — obscure, and the folder is then simply parked hidden.
+	 */
+	private function isSponsoredSystemShare(string $recipient, string $sharer, string $gid): bool {
+		if ($gid === '' || $sharer === '' || $sharer === $recipient) {
+			return false;
+		}
+		try {
+			$qb = $this->db->getQueryBuilder();
+			$qb->select('g.gid')
+			   ->from('uga_groups', 'g')
+			   ->innerJoin('g', 'uga_group_members', 'm', $qb->expr()->eq('g.gid', 'm.gid'))
+			   ->where($qb->expr()->eq('g.gid', $qb->createNamedParameter($gid)))
+			   ->andWhere($qb->expr()->eq('g.owner', $qb->createNamedParameter($recipient)))
+			   ->andWhere($qb->expr()->neq('g.storage_grant', $qb->createNamedParameter('')))
+			   ->andWhere($qb->expr()->eq('m.uid', $qb->createNamedParameter($sharer)))
+			   ->andWhere($qb->expr()->eq('m.status', $qb->createNamedParameter(1, IQueryBuilder::PARAM_INT)))
+			   ->setMaxResults(1);
+			$cur = $qb->executeQuery();
+			$hit = $cur->fetchOne();
+			$cur->closeCursor();
+			return $hit !== false;
+		} catch (\Throwable) {
+			return false; // uga tables absent / any error → treat as a normal share
+		}
+	}
+
 	private function uniqueMountpoint(string $userId, string $name): string {
 		$candidate = $name;
 		$i = 2;
