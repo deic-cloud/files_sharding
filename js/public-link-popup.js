@@ -161,9 +161,9 @@
 		// URL row: fixed prefix + editable last segment + open + copy.
 		// Icons match the sharing pane's copy button: MDI glyph in a circular
 		// hover button. One line — prefix shrinks with ellipsis, icons never wrap.
-		var ICON_BTN = 'flex:0 0 auto;width:36px;height:36px;border-radius:50%;border:none;background:transparent;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:inherit;'
-		var SVG_COPY = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"/></svg>'
-		var SVG_OPEN = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z"/></svg>'
+		var ICON_BTN = 'flex:0 0 auto;width:36px;height:36px;border-radius:50%;border:none;background:transparent;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:inherit;line-height:0;padding:0;'
+		var SVG_COPY = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" style="width:20px;height:20px;min-width:20px;min-height:20px" fill="currentColor"><path d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"/></svg>'
+		var SVG_OPEN = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" style="width:20px;height:20px;min-width:20px;min-height:20px" fill="currentColor"><path d="M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z"/></svg>'
 		function hoverize(b) {
 			b.addEventListener('mouseenter', function () { b.style.background = 'var(--color-background-hover,#ededed)' })
 			b.addEventListener('mouseleave', function () { b.style.background = 'transparent' })
@@ -249,6 +249,12 @@
 			if (span && span.textContent.trim() !== '' && !item.dataset.fshRelabeled) {
 				item.dataset.fshRelabeled = '1'
 				span.textContent = t('files_sharding', 'Show public link')
+				// swap the stock "+" for a chain-link glyph (mdi link-variant)
+				var svg = item.querySelector('svg')
+				if (svg) {
+					var path = svg.querySelector('path')
+					if (path) { path.setAttribute('d', 'M10.59,13.41C11,13.8 11,14.44 10.59,14.83C10.2,15.22 9.56,15.22 9.17,14.83C7.22,12.88 7.22,9.71 9.17,7.76V7.76L12.71,4.22C14.66,2.27 17.83,2.27 19.78,4.22C21.73,6.17 21.73,9.34 19.78,11.29L18.29,12.78C18.3,11.96 18.17,11.14 17.89,10.36L18.36,9.88C19.54,8.71 19.54,6.81 18.36,5.64C17.19,4.46 15.29,4.46 14.12,5.64L10.59,9.17C9.41,10.34 9.41,12.24 10.59,13.41M13.41,9.17C13.8,8.78 14.44,8.78 14.83,9.17C16.78,11.12 16.78,14.29 14.83,16.24V16.24L11.29,19.78C9.34,21.73 6.17,21.73 4.22,19.78C2.27,17.83 2.27,14.66 4.22,12.71L5.71,11.22C5.7,12.04 5.83,12.86 6.11,13.65L5.64,14.12C4.46,15.29 4.46,17.19 5.64,18.36C6.81,19.54 8.71,19.54 9.88,18.36L13.41,14.83C14.59,13.66 14.59,11.76 13.41,10.59C13,10.2 13,9.56 13.41,9.17Z') }
+				}
 			}
 		})
 	}
