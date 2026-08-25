@@ -50,14 +50,34 @@
 	var BTN = 'margin:0 4px;padding:8px 16px;border-radius:var(--border-radius-pill,20px);border:1px solid var(--color-border-dark,#ccc);background:var(--color-main-background,#fff);color:inherit;cursor:pointer;'
 	var BTN_PRIMARY = BTN + 'background:var(--color-primary-element,#0082c9);color:var(--color-primary-element-text,#fff);border-color:transparent;'
 
-	function currentSidebarPath() {
-		try { return (window.OCA && OCA.Files && OCA.Files.Sidebar && OCA.Files.Sidebar.file) || null } catch (e) { return null }
+	function sidebarStore() {
+		// NC34+: the sidebar is a Pinia store behind OCA.Files._sidebar()
+		// (OCA.Files.Sidebar is gone — apps/files/src/sidebar.ts).
+		try { return (window.OCA && OCA.Files && OCA.Files._sidebar) ? OCA.Files._sidebar() : null } catch (e) { return null }
 	}
 
-	function refreshSidebar(path) {
+	function currentSidebarPath() {
 		try {
-			OCA.Files.Sidebar.close()
-			setTimeout(function () { OCA.Files.Sidebar.open(path) }, 150)
+			var store = sidebarStore()
+			if (store && store.currentNode && store.currentNode.path) {
+				return store.currentNode.path
+			}
+			// pre-NC34 fallback
+			if (window.OCA && OCA.Files && OCA.Files.Sidebar && OCA.Files.Sidebar.file) {
+				return OCA.Files.Sidebar.file
+			}
+		} catch (e) { /* fall through */ }
+		return null
+	}
+
+	function refreshSidebar() {
+		try {
+			var store = sidebarStore()
+			if (store && store.currentNode) {
+				var node = store.currentNode
+				store.close()
+				setTimeout(function () { store.open(node, 'sharing') }, 150)
+			}
 		} catch (e) { /* cosmetic */ }
 	}
 
@@ -195,7 +215,7 @@
 			Promise.all(jobs)
 				.then(function () {
 					close()
-					refreshSidebar(path)
+					refreshSidebar()
 				})
 				.catch(function (e) {
 					done.disabled = false
@@ -211,7 +231,10 @@
 		var btn = e.target && e.target.closest && e.target.closest('.new-share-link')
 		if (!btn) { return }
 		var path = currentSidebarPath()
-		if (!path) { return } // can't resolve the file — leave the stock flow alone
+		if (!path) {
+			console.warn('[files_sharding] public-link popup: cannot resolve sidebar file — falling back to the stock flow')
+			return
+		}
 		e.preventDefault()
 		e.stopPropagation()
 		showDialog(path)
