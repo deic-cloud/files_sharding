@@ -61,6 +61,20 @@
 		} catch (e) { /* cosmetic */ }
 	}
 
+	function readCatalogListed(share) {
+		// OCS serializes share attributes as a JSON string of
+		// [{scope, key, enabled|value}]; files_picocms stores catalog_listed there.
+		try {
+			var attrs = typeof share.attributes === 'string' ? JSON.parse(share.attributes) : (share.attributes || [])
+			for (var i = 0; i < attrs.length; i++) {
+				if (attrs[i].scope === 'files_picocms' && attrs[i].key === 'catalog_listed') {
+					return !!(attrs[i].enabled !== undefined ? attrs[i].enabled : attrs[i].value)
+				}
+			}
+		} catch (e) { /* ignore */ }
+		return false
+	}
+
 	function showDialog(path) {
 		var overlay = el('div', { style: OVERLAY_STYLE })
 		var box = el('div', { style: BOX_STYLE })
@@ -69,7 +83,27 @@
 		function close() { overlay.remove() }
 		overlay.addEventListener('click', function (e) { if (e.target === overlay) { close() } })
 
-		// Phase 1: warning + confirm
+		// ONE public link per file (old-service model — several links for the same
+		// data is asking for trouble). If one exists, open it for viewing/editing
+		// instead of minting another; the warning is only for CREATION.
+		box.appendChild(el('p', { text: t('files_sharding', 'Loading…'), style: 'margin:0;' }))
+		ocs('GET', '/ocs/v2.php/apps/files_sharing/api/v1/shares?path=' + encodeURIComponent(path))
+			.then(function (res) {
+				var shares = (res.ocs && res.ocs.data) || []
+				var link = shares.filter(function (s) { return s.share_type === 3 })[0]
+				if (link) {
+					showLinkPhase(box, path, link, close)
+				} else {
+					showCreatePhase(box, path, close)
+				}
+			})
+			.catch(function () { showCreatePhase(box, path, close) })
+	}
+
+	function showCreatePhase(box, path, close) {
+		box.textContent = ''
+
+		// Warning + confirm (creation only)
 		var msg = el('p', { text: warningText(), style: 'margin:0 0 16px 0;line-height:1.5;' })
 		var row = el('div', { style: 'text-align:right;margin-top:12px;' })
 		var cancel = el('button', { text: t('files_sharding', 'Cancel'), style: BTN })
@@ -121,9 +155,11 @@
 
 		// Public-dataset checkbox (only when files_picocms is enabled)
 		var listedBox = null
+		var wasListed = readCatalogListed(share)
 		if (window.OC && OC.appswebroots && OC.appswebroots.files_picocms) {
 			var lbl = el('label', { style: 'display:flex;align-items:center;gap:8px;margin:4px 0 10px 0;cursor:pointer;' })
 			listedBox = el('input', { type: 'checkbox' })
+			listedBox.checked = wasListed
 			lbl.appendChild(listedBox)
 			lbl.appendChild(el('span', { text: t('files_sharding', 'List in the public dataset catalog') }))
 			box.appendChild(lbl)
@@ -152,9 +188,9 @@
 						}
 					}))
 			}
-			if (listedBox && listedBox.checked) {
+			if (listedBox && listedBox.checked !== wasListed) {
 				jobs.push(ocs('POST', '/ocs/v2.php/apps/files_picocms/api/v1/catalog',
-					{ fileId: share.file_source, listed: true }))
+					{ fileId: share.file_source, listed: listedBox.checked }))
 			}
 			Promise.all(jobs)
 				.then(function () {
