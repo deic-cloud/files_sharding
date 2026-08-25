@@ -86,8 +86,10 @@
 		order: 60,
 		enabled: function (nodes, view) {
 			if (!nodes || nodes.length !== 1) { return false }
-			var id = view && view.id
-			return id === 'files' || id === 'sharingout' || id === 'sharinglinks'
+			// Show wherever a user manages their own files (incl. 'personal',
+			// favorites, recent); exclude read-only/trash surfaces.
+			var id = (view && view.id) || ''
+			return id !== 'trashbin' && id !== 'uga-sponsored' && id.indexOf('deleted') === -1
 		},
 		exec: function (node) { run(node); return Promise.resolve(null) },
 	})
