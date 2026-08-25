@@ -46,7 +46,7 @@
 	}
 
 	var OVERLAY_STYLE = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10000;display:flex;align-items:center;justify-content:center;'
-	var BOX_STYLE = 'background:var(--color-main-background,#fff);color:var(--color-main-text,#222);border-radius:var(--border-radius-large,10px);max-width:520px;width:92%;padding:20px 24px;box-shadow:0 2px 24px rgba(0,0,0,.4);font-size:14px;'
+	var BOX_STYLE = 'background:var(--color-main-background,#fff);color:var(--color-main-text,#222);border-radius:var(--border-radius-large,10px);max-width:520px;width:92%;padding:20px 24px;box-shadow:0 2px 24px rgba(0,0,0,.4);font-size:15px;'
 	var BTN = 'margin:0 4px;padding:8px 16px;border-radius:var(--border-radius-pill,20px);border:1px solid var(--color-border-dark,#ccc);background:var(--color-main-background,#fff);color:inherit;cursor:pointer;'
 	var BTN_PRIMARY = BTN + 'background:var(--color-primary-element,#0082c9);color:var(--color-primary-element-text,#fff);border-color:transparent;'
 
@@ -158,18 +158,31 @@
 
 		box.appendChild(el('h3', { text: t('files_sharding', 'Public link'), style: 'margin:0 0 12px 0;' }))
 
-		// URL row: fixed prefix + editable last segment + open + copy
-		var urlRow = el('div', { style: 'display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-bottom:14px;' })
-		var prefix = el('span', { text: base, style: 'font-family:monospace;font-size:12px;color:var(--color-text-maxcontrast,#666);' })
-		var nameInput = el('input', { type: 'text', value: share.token, style: 'font-family:monospace;font-size:12px;padding:4px 6px;border:1px solid var(--color-border-dark,#ccc);border-radius:4px;min-width:150px;' })
-		var openA = el('a', { href: base + share.token, target: '_blank', rel: 'noopener', text: '↗', title: t('files_sharding', 'Open link'), style: 'text-decoration:none;font-size:16px;padding:0 4px;' })
-		var copyBtn = el('button', { text: '⧉', title: t('files_sharding', 'Copy link'), style: BTN + 'padding:4px 10px;' })
+		// URL row: fixed prefix + editable last segment + open + copy.
+		// Icons match the sharing pane's copy button: MDI glyph in a circular
+		// hover button. One line — prefix shrinks with ellipsis, icons never wrap.
+		var ICON_BTN = 'flex:0 0 auto;width:36px;height:36px;border-radius:50%;border:none;background:transparent;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:inherit;'
+		var SVG_COPY = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"/></svg>'
+		var SVG_OPEN = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z"/></svg>'
+		function hoverize(b) {
+			b.addEventListener('mouseenter', function () { b.style.background = 'var(--color-background-hover,#ededed)' })
+			b.addEventListener('mouseleave', function () { b.style.background = 'transparent' })
+		}
+		var urlRow = el('div', { style: 'display:flex;align-items:center;gap:2px;flex-wrap:nowrap;margin-bottom:14px;' })
+		var prefix = el('span', { text: base, title: base, style: 'font-family:monospace;font-size:13px;color:var(--color-text-maxcontrast,#666);flex:0 1 auto;min-width:40px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' })
+		var nameInput = el('input', { type: 'text', value: share.token, style: 'font-family:monospace;font-size:13px;padding:6px 8px;border:1px solid var(--color-border-dark,#ccc);border-radius:4px;flex:1 1 120px;min-width:100px;' })
+		var openA = el('a', { href: base + share.token, target: '_blank', rel: 'noopener', title: t('files_sharding', 'Open link'), style: ICON_BTN })
+		openA.innerHTML = SVG_OPEN
+		var copyBtn = el('button', { title: t('files_sharding', 'Copy link'), style: ICON_BTN })
+		copyBtn.innerHTML = SVG_COPY
+		hoverize(openA); hoverize(copyBtn)
 		urlRow.appendChild(prefix); urlRow.appendChild(nameInput); urlRow.appendChild(openA); urlRow.appendChild(copyBtn)
 		box.appendChild(urlRow)
 		copyBtn.addEventListener('click', function () {
 			navigator.clipboard && navigator.clipboard.writeText(base + nameInput.value.trim())
+			var old = copyBtn.innerHTML
 			copyBtn.textContent = '✓'
-			setTimeout(function () { copyBtn.textContent = '⧉' }, 1200)
+			setTimeout(function () { copyBtn.innerHTML = old }, 1200)
 		})
 		nameInput.addEventListener('input', function () { openA.href = base + nameInput.value.trim() })
 
@@ -186,8 +199,8 @@
 		}
 
 		box.appendChild(el('p', {
-			text: t('files_sharding', 'Password, expiration date and permissions can be set on the link entry in the sharing panel.'),
-			style: 'margin:4px 0 12px 0;font-size:12px;color:var(--color-text-maxcontrast,#666);',
+			text: t('files_sharding', 'Password, expiration date and permissions can be set on the link entry in the sharing panel. One public link per file or folder — creating additional links is disabled.'),
+			style: 'margin:4px 0 12px 0;font-size:13px;color:var(--color-text-maxcontrast,#666);',
 		}))
 
 		var row = el('div', { style: 'text-align:right;' })
@@ -223,6 +236,31 @@
 				})
 		})
 	}
+
+	// Rename the stock "Add another link" menu entry — inaccurate under the
+	// one-link policy (clicking it opens the existing link for editing).
+	// Class-targeted (locale-independent); a menu-only variant carries a text
+	// span, the icon-only create "+" does not and is left alone. Fails safe:
+	// if the markup changes the observer simply never matches.
+	function relabelAddAnother(rootNode) {
+		var items = (rootNode.querySelectorAll ? rootNode : document).querySelectorAll('.new-share-link')
+		items.forEach && items.forEach(function (item) {
+			var span = item.querySelector && item.querySelector('button span:not([class*="icon"])')
+			if (span && span.textContent.trim() !== '' && !item.dataset.fshRelabeled) {
+				item.dataset.fshRelabeled = '1'
+				span.textContent = t('files_sharding', 'Show public link')
+			}
+		})
+	}
+	try {
+		new MutationObserver(function (muts) {
+			muts.forEach(function (m) {
+				m.addedNodes.forEach(function (n) {
+					if (n.nodeType === 1) { relabelAddAnother(n) }
+				})
+			})
+		}).observe(document.body, { childList: true, subtree: true })
+	} catch (e) { /* cosmetic */ }
 
 	// decodeURIComponent anchor: keeps minifiers from dropping the block.
 	decodeURIComponent('')
