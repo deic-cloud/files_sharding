@@ -81,6 +81,146 @@
 		} catch (e) { /* cosmetic */ }
 	}
 
+	// ── Catalog metadata editor (meta_data app integration) ─────────────────
+	// Folds down under the catalog checkbox: one or more schema blocks, each a
+	// tag selector + value inputs for the tag's keys. Default suggestion is
+	// 'public_data' (creator/date/type), created on first use. Untouched blocks
+	// save NOTHING (the entry then carries only system info: owner/date/size).
+
+	var MD_OCS = '/ocs/v2.php/apps/meta_data/api/v1'
+	var PD_DEFAULT_KEYS = ['creator', 'date', 'type']
+
+	function mdAvailable() {
+		return !!(window.OC && OC.appswebroots && OC.appswebroots.meta_data)
+	}
+
+	function mdTags() {
+		return ocs('GET', MD_OCS + '/tags').then(function (r) {
+			return ((r.ocs && r.ocs.data && r.ocs.data.tags) || [])
+		}).catch(function () { return [] })
+	}
+
+	function mdKeys(tagId) {
+		return ocs('GET', MD_OCS + '/tags/' + tagId + '/keys').then(function (r) {
+			return ((r.ocs && r.ocs.data && r.ocs.data.keys) || [])
+		}).catch(function () { return [] })
+	}
+
+	function buildMetaPanel(box, state) {
+		var panel = el('div', { style: 'margin:0 0 12px 0;padding:10px 12px;border:1px solid var(--color-border-dark,#ddd);border-radius:8px;background:var(--color-background-hover,#fafafa);' })
+		panel.appendChild(el('div', {
+			text: t('files_sharding', 'Describe the entry (optional). Filled-in fields are saved as metadata on the file; empty schemas are not saved.'),
+			style: 'font-size:12px;color:var(--color-text-maxcontrast,#666);margin-bottom:8px;',
+		}))
+		var blocks = el('div', {})
+		panel.appendChild(blocks)
+		var addBtn = el('button', { text: t('files_sharding', '+ Add another schema'), style: 'font-size:12px;background:transparent;border:none;color:var(--color-primary-element,#0082c9);cursor:pointer;padding:4px 0;' })
+		panel.appendChild(addBtn)
+
+		function addBlock(preselect) {
+			var block = { tag: null, keys: [], inputs: {}, touched: false }
+			var wrap = el('div', { style: 'margin-bottom:10px;' })
+			var sel = el('select', { style: 'font-size:13px;padding:4px 6px;border:1px solid var(--color-border-dark,#ccc);border-radius:4px;margin-bottom:6px;max-width:100%;' })
+			var fields = el('div', { style: 'display:flex;flex-direction:column;gap:4px;' })
+			wrap.appendChild(sel); wrap.appendChild(fields)
+			blocks.appendChild(wrap)
+
+			var opts = [{ name: 'public_data', id: null, virtual: true }]
+			state.tags.forEach(function (tg) {
+				if (tg.name !== 'public_data') { opts.push(tg) }
+				else { opts[0] = tg } // real public_data replaces the virtual default
+			})
+			opts.forEach(function (tg) {
+				var o = el('option', { text: tg.name })
+				o._tag = tg
+				sel.appendChild(o)
+			})
+
+			function renderFields(keys) {
+				fields.textContent = ''
+				block.inputs = {}
+				keys.forEach(function (k) {
+					var input = el('input', { type: 'text', placeholder: k, style: 'font-size:13px;padding:4px 6px;border:1px solid var(--color-border-dark,#ccc);border-radius:4px;' })
+					input.addEventListener('input', function () { block.touched = true })
+					block.inputs[k] = input
+					fields.appendChild(input)
+				})
+			}
+
+			function onSelect(first) {
+				var tg = sel.options[sel.selectedIndex]._tag
+				block.tag = tg
+				if (!first) { block.touched = true }
+				if (tg.virtual) {
+					block.keys = PD_DEFAULT_KEYS.slice()
+					renderFields(block.keys)
+				} else {
+					mdKeys(tg.id).then(function (keys) {
+						block.keys = keys.map(function (k) { return k.name })
+						block.keyIds = {}
+						keys.forEach(function (k) { block.keyIds[k.name] = k.id })
+						renderFields(block.keys)
+					})
+				}
+			}
+			sel.addEventListener('change', function () { onSelect(false) })
+			if (preselect) {
+				for (var i = 0; i < sel.options.length; i++) {
+					if (sel.options[i]._tag.name === preselect) { sel.selectedIndex = i; break }
+				}
+			}
+			onSelect(true)
+			state.blocks.push(block)
+		}
+
+		addBtn.addEventListener('click', function () { addBlock(null) })
+		addBlock('public_data')
+		return panel
+	}
+
+	/** Persist the touched schema blocks onto the shared node. Returns a promise. */
+	function saveMetaPanel(state, fileId) {
+		var jobs = []
+		state.blocks.forEach(function (block) {
+			if (!block.tag) { return }
+			var values = {}
+			var any = false
+			block.keys.forEach(function (k) {
+				var v = (block.inputs[k] && block.inputs[k].value || '').trim()
+				if (v !== '') { values[k] = v; any = true }
+			})
+			// Untouched default block with no values → save nothing.
+			if (!any && !(block.touched && !block.tag.virtual)) { return }
+
+			var job = Promise.resolve(block.tag)
+			if (block.tag.virtual) {
+				// create public_data + its default keys on first use
+				job = ocs('POST', MD_OCS + '/tags', { name: 'public_data' }).then(function () {
+					return mdTags()
+				}).then(function (tags) {
+					var tg = tags.filter(function (x) { return x.name === 'public_data' })[0]
+					if (!tg) { throw new Error('could not create public_data') }
+					return Promise.all(PD_DEFAULT_KEYS.map(function (k) {
+						return ocs('POST', MD_OCS + '/tags/' + tg.id + '/keys', { keyname: k })
+					})).then(function () { return tg })
+				})
+			}
+			jobs.push(job.then(function (tg) {
+				return mdKeys(tg.id).then(function (keys) {
+					var keyIds = {}
+					keys.forEach(function (k) { keyIds[k.name] = k.id })
+					return ocs('PUT', MD_OCS + '/filetags', { fileid: fileId, tagid: tg.id }).then(function () {
+						return Promise.all(Object.keys(values).map(function (k) {
+							if (!keyIds[k]) { return Promise.resolve() }
+							return ocs('POST', MD_OCS + '/filemeta', { fileid: fileId, tagid: tg.id, keyid: keyIds[k], value: values[k] })
+						}))
+					})
+				})
+			}))
+		})
+		return Promise.all(jobs)
+	}
+
 	function readCatalogListed(share) {
 		// OCS serializes share attributes as a JSON string of
 		// [{scope, key, enabled|value}]; files_picocms stores catalog_listed there.
@@ -189,6 +329,8 @@
 		// Public-dataset checkbox (only when files_picocms is enabled)
 		var listedBox = null
 		var wasListed = readCatalogListed(share)
+		var metaState = { tags: [], blocks: [] }
+		var metaPanel = null
 		if (window.OC && OC.appswebroots && OC.appswebroots.files_picocms) {
 			var lbl = el('label', { style: 'display:flex;align-items:center;gap:8px;margin:4px 0 10px 0;cursor:pointer;' })
 			listedBox = el('input', { type: 'checkbox' })
@@ -196,6 +338,23 @@
 			lbl.appendChild(listedBox)
 			lbl.appendChild(el('span', { text: t('files_sharding', 'List in the public dataset catalog') }))
 			box.appendChild(lbl)
+			var metaSlot = el('div', {})
+			box.appendChild(metaSlot)
+			var syncPanel = function () {
+				if (listedBox.checked && mdAvailable() && !metaPanel) {
+					mdTags().then(function (tags) {
+						if (metaPanel || !listedBox.checked) { return }
+						metaState.tags = tags
+						metaState.blocks = []
+						metaPanel = buildMetaPanel(box, metaState)
+						metaSlot.appendChild(metaPanel)
+					})
+				} else if (!listedBox.checked && metaPanel) {
+					metaPanel.remove(); metaPanel = null; metaState.blocks = []
+				}
+			}
+			listedBox.addEventListener('change', syncPanel)
+			syncPanel()
 		}
 
 		box.appendChild(el('p', {
@@ -224,6 +383,9 @@
 			if (listedBox && listedBox.checked !== wasListed) {
 				jobs.push(ocs('POST', '/ocs/v2.php/apps/files_picocms/api/v1/catalog',
 					{ fileId: share.file_source, listed: listedBox.checked }))
+			}
+			if (listedBox && listedBox.checked && metaState.blocks.length > 0) {
+				jobs.push(saveMetaPanel(metaState, share.file_source))
 			}
 			Promise.all(jobs)
 				.then(function () {
