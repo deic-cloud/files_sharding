@@ -24,11 +24,20 @@ class CspListener implements IEventListener {
 		if (!($event instanceof AddContentSecurityPolicyEvent)) {
 			return;
 		}
+
+		$policy = new EmptyContentSecurityPolicy();
+		// Stock NC34 gap: files-init.js registers the preview service worker on
+		// PUBLIC share pages too, but only the logged-in Files controller adds
+		// worker-src 'self' — so every public share page logs a CSP block
+		// ("blocked a worker script (worker-src) … violates script-src").
+		// Grant globally what core grants the Files page. All nodes.
+		$policy->addAllowedWorkerSrcDomain("'self'");
+
 		if (!$this->shardingService->isMaster()) {
+			$event->addPolicy($policy);
 			return;
 		}
 
-		$policy = new EmptyContentSecurityPolicy();
 		foreach ($this->shardingService->getAllServers() as $server) {
 			$parsed = parse_url($server->getUrl());
 			if (!$parsed || empty($parsed['host'])) {
