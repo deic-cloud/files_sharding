@@ -59,6 +59,18 @@ class RedirectMiddleware extends Middleware {
 			return;
 		}
 
+		// PUBLIC surfaces render on the node that holds the content, for everyone —
+		// anonymous or logged-in. Bouncing a logged-in silo user who clicks a
+		// public share link (/s/<token>) or an authless page to their home silo
+		// hijacks a page that exists only HERE (observed: a catalog record on the
+		// master SSO-bounced alice to her silo's Files app instead of showing the
+		// share; on the shared-hostname test setup the hop also rotates cookies and
+		// wrecks the silo session). Share pages, previews and other public
+		// controllers identify themselves with #[PublicPage].
+		if ($this->isPublicPage($controller, $methodName)) {
+			return;
+		}
+
 		// Skip non-page requests — OCS APIs, DAV, and remote.php never need the redirect UI.
 		$uri = $this->request->getRequestUri();
 		if (
@@ -142,4 +154,27 @@ class RedirectMiddleware extends Middleware {
 		}
 		return new RedirectResponse($url);
 	}
+	/**
+	 * True when the target method (or controller class) is declared public —
+	 * the #[PublicPage] attribute or the legacy @PublicPage annotation.
+	 */
+	private function isPublicPage(Controller $controller, string $methodName): bool {
+		try {
+			$ref = new \ReflectionMethod($controller, $methodName);
+			if ($ref->getAttributes(\OCP\AppFramework\Http\Attribute\PublicPage::class) !== []) {
+				return true;
+			}
+			$doc = $ref->getDocComment();
+			if ($doc !== false && str_contains($doc, '@PublicPage')) {
+				return true;
+			}
+			$cref = new \ReflectionClass($controller);
+			if ($cref->getAttributes(\OCP\AppFramework\Http\Attribute\PublicPage::class) !== []) {
+				return true;
+			}
+		} catch (\Throwable) {
+		}
+		return false;
+	}
+
 }
