@@ -85,6 +85,69 @@ class ApiController extends OCSController {
 		return new DataResponse(['token' => $name, 'url' => $this->linkUrl($name)]);
 	}
 
+	/**
+	 * One-click "Add to my ScienceData": mount a PUBLIC LINK share into the
+	 * logged-in visitor's own files. Mints a federated share
+	 * owner → visitor@master — the same mechanism the group-share fan-out uses —
+	 * which rides the mirror machinery to the visitor's home silo and appears
+	 * under "Shared with you"/sharingin. Live view (owner can revoke, storage
+	 * stays the owner's); copying items out of the mount into the home dir is
+	 * the supported way to take a snapshot.
+	 */
+	#[NoAdminRequired]
+	public function saveShare(string $token): DataResponse {
+		$uid = $this->currentUserId();
+		if ($uid === '') {
+			return new DataResponse(['message' => 'Not logged in'], 401);
+		}
+		try {
+			$share = $this->shareManager->getShareByToken($token);
+		} catch (\OCP\Share\Exceptions\ShareNotFound) {
+			return new DataResponse(['message' => 'Share not found'], 404);
+		}
+		if ($share->getShareType() !== \OCP\Share\IShare::TYPE_LINK) {
+			return new DataResponse(['message' => 'Not a public link'], 400);
+		}
+		$owner = (string)$share->getShareOwner();
+		if ($owner === $uid) {
+			return new DataResponse(['status' => 'own']);
+		}
+		try {
+			$node = $share->getNode();
+		} catch (\Throwable) {
+			return new DataResponse(['message' => 'Shared content unavailable'], 404);
+		}
+
+		$masterHost = (string)preg_replace('#^https?://#', '', rtrim($this->shardingService->masterUrl(), '/'));
+		if ($masterHost === '') {
+			return new DataResponse(['message' => 'Cluster not configured'], 500);
+		}
+		$recipient = $uid . '@' . $masterHost;
+
+		// Dedupe: an identical federated share already exists.
+		try {
+			foreach ($this->shareManager->getSharesBy($owner, \OCP\Share\IShare::TYPE_REMOTE, $node, false, -1, 0) as $existing) {
+				if ((string)$existing->getSharedWith() === $recipient) {
+					return new DataResponse(['status' => 'exists']);
+				}
+			}
+		} catch (\Throwable) {
+		}
+
+		try {
+			$new = $this->shareManager->newShare();
+			$new->setNode($node)
+				->setShareType(\OCP\Share\IShare::TYPE_REMOTE)
+				->setSharedWith($recipient)
+				->setSharedBy($owner)
+				->setPermissions(\OCP\Constants::PERMISSION_READ);
+			$this->shareManager->createShare($new);
+		} catch (\Throwable $e) {
+			return new DataResponse(['message' => 'Could not add: ' . $e->getMessage()], 500);
+		}
+		return new DataResponse(['status' => 'added']);
+	}
+
 	private function linkUrl(string $token): string {
 		$own = rtrim((string)$this->config->getSystemValue('overwrite.cli.url', ''), '/');
 		return $own . '/index.php/s/' . $token;

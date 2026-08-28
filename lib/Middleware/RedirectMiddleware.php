@@ -142,6 +142,19 @@ class RedirectMiddleware extends Middleware {
 		if ($url === null) {
 			return $response;
 		}
+		// Never hijack API/DAV responses with the silo redirect (a Basic-auth OCS
+		// call fires a login event → PostLoginListener queues the redirect →
+		// this used to replace the JSON body with a 303). Pages only.
+		$uri = $this->request->getRequestUri();
+		if (str_starts_with($uri, '/ocs/')
+			|| str_starts_with($uri, '/remote.php/')
+			|| $this->request->getHeader('OCS-APIREQUEST') === 'true') {
+			return $response;
+		}
+		// Public pages render where the content lives (see beforeController).
+		if ($this->isPublicPage($controller, $methodName)) {
+			return $response;
+		}
 		// LoginController manages its own redirects (login exchange, sudo flow).
 		// Applying the silo-assignment redirect here would break those flows.
 		if ($controller instanceof LoginController) {
