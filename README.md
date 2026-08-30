@@ -150,6 +150,11 @@ Called node-to-node; no Nextcloud session required.
 | `POST` | `/internal/users/{userId}/update` | Propagate user changes |
 | `POST` | `/internal/users/{userId}/delete` | Propagate user deletion |
 
+## Documentation
+
+- [`docs/share-lifecycle.md`](docs/share-lifecycle.md) — the share model, cross-silo delivery, invariants and the DAV surface.
+- [`docs/x509-auth.md`](docs/x509-auth.md) — X.509 client-certificate authentication: the `/grid/` endpoint, trusted-daemon impersonation (batch/GridFactory I/O), user-pod certs, the two headers, config keys, and the web-server forgery invariant.
+
 ## Development
 
 No build step. Pure PHP + plain JS.
