@@ -157,11 +157,29 @@ class X509Backend extends ABackend implements IUserBackend, IApacheBackend, IChe
 	// ── Helpers ───────────────────────────────────────────────────────────────
 
 	private function getClientDn(): string {
-		// The web server passes the verified client certificate subject DN:
-		//   Apache: SSL_CLIENT_S_DN as header SSL-CLIENT-S-DN
-		//   nginx:  $ssl_client_s_dn as header X-Ssl-Client-S-Dn
-		// The front proxy MUST set this from the verified certificate (over-
-		// writing any client-supplied value) so it cannot be forged.
+		// The VERIFIED client-certificate subject DN.
+		//
+		// On direct Apache (the physical servers) it lands in the SSL_CLIENT_S_DN
+		// environment variable — or REDIRECT_SSL_CLIENT_S_DN after an internal
+		// rewrite such as /grid/ -> /remote.php/webdav/. This is the SAME source
+		// the old ScienceData service used (chooser/lib/x509_auth.php), and it is
+		// unforgeable: Apache only sets it when SSLVerifyClient actually validated
+		// the certificate. We therefore trust the env var only when
+		// SSL_CLIENT_VERIFY == SUCCESS.
+		//
+		// A front proxy that terminates the client-cert TLS itself (kube-Caddy on
+		// the pods) instead forwards the DN as a request header — used as the
+		// fallback. The proxy MUST overwrite any client-supplied header so it
+		// cannot be forged.
+		$srv = $this->request->server ?? $_SERVER;
+		$verify = (string)($srv['SSL_CLIENT_VERIFY'] ?? $srv['REDIRECT_SSL_CLIENT_VERIFY'] ?? '');
+		if ($verify === 'SUCCESS') {
+			foreach (['SSL_CLIENT_S_DN', 'REDIRECT_SSL_CLIENT_S_DN'] as $k) {
+				if (!empty($srv[$k])) {
+					return trim((string)$srv[$k]);
+				}
+			}
+		}
 		return trim($this->request->getHeader('SSL-CLIENT-S-DN')
 			?: $this->request->getHeader('X-Ssl-Client-S-Dn')
 			?: '');
