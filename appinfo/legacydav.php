@@ -42,6 +42,33 @@ use OCP\Security\Bruteforce\IThrottler;
 use OCP\Server;
 use Psr\Log\LoggerInterface;
 
+// ── Self-bootstrap ────────────────────────────────────────────────────────────
+// This endpoint is reached DIRECTLY by a mod_rewrite of the pretty /files and
+// /grid paths (…RewriteRule ^files/(.*) /apps/files_sharding/appinfo/legacydav.php).
+// Pointing the rewrite straight here — rather than at /remote.php/webdav — avoids
+// touching core (remote.php derives the DAV service from REQUEST_URI and would
+// send /files to the stock webdav whose baseUri then mismatches → 500). So the
+// app stays app-store-installable: anyone can add these two rewrite lines to get
+// pretty WebDAV URLs, with no core patch.
+//
+// We replicate what NC's remote.php does before including a DAV handler: bootstrap
+// the stack and load the auth/filesystem/logging app groups (X.509 login runs in
+// base.php's request handling; Basic auth is done by the Sabre Auth plugin below).
+if (!defined('OC_VERSION')) {
+	require_once __DIR__ . '/../../../lib/base.php';
+	header("Content-Security-Policy: default-src 'none';");
+	if (\OCP\Util::needUpgrade()) {
+		http_response_code(503);
+		exit('Service unavailable (upgrade in progress)');
+	}
+	\OC::$REQUESTEDAPP = 'files_sharding';
+	$appManager = \OCP\Server::get(\OCP\App\IAppManager::class);
+	$appManager->loadApps(['authentication']);
+	$appManager->loadApps(['extended_authentication']);
+	$appManager->loadApps(['filesystem', 'logging']);
+	$appManager->loadApp('files_sharding');
+}
+
 // no php execution timeout for webdav
 if (!str_contains(@ini_get('disable_functions'), 'set_time_limit')) {
 	@set_time_limit(0);
