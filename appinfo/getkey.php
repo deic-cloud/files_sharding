@@ -19,6 +19,20 @@ declare(strict_types=1);
  * needed and the pod stays byte-for-byte unchanged.
  */
 
+// SECURITY: the private-key endpoint is ONLY for service pods on the user-pod
+// VLAN (uservlannet, e.g. 10.2.). Refuse from anywhere else — a user's own key
+// download is the session-authed /x509 route, not this pod-facing endpoint.
+$cfg = \OCP\Server::get(\OCP\IConfig::class);
+$net = trim($cfg->getSystemValue('uservlannet', ''));
+$ip  = \OCP\Server::get(\OCP\IRequest::class)->getRemoteAddress();
+$onPodVlan = ($net !== '' && str_starts_with($ip, $net)) || $ip === '127.0.0.1' || $ip === '::1';
+if (!$onPodVlan) {
+	header('Content-Type: application/json; charset=utf-8');
+	http_response_code(403);
+	echo json_encode(['status' => 'error', 'data' => ['message' => 'Forbidden']]);
+	return;
+}
+
 $userSession = \OCP\Server::get(\OCP\IUserSession::class);
 // A plain remote service does not auto-authenticate. Trigger the apache backends
 // first (files_sharding IpAuthBackend → the cloud-pod `-u <user>:` impersonation;
