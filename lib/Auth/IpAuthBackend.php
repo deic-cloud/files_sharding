@@ -184,28 +184,26 @@ class IpAuthBackend extends ABackend implements IUserBackend, IApacheBackend {
 
 	/** Owner (NC uid) of the container whose pod IP matches $ip, or ''. Cached per IP. */
 	private function ownerForIp(string $ip): string {
+		// Fetch the FULL container list and cache it whole (the old chooser's
+		// checkIP pattern) — get_containers.php has no per-IP filter, and the
+		// unfiltered listing is slow (~15s), so it must be hit at most once per
+		// TTL, with every request in between scanning the cached copy locally.
 		$cache = $this->cacheFactory->isAvailable() ? $this->cacheFactory->createLocal('files_sharding_podips') : null;
-		if ($cache !== null) {
-			$cached = $cache->get('owner:' . $ip);
-			if (is_string($cached)) {
-				return $cached;
-			}
+		$list = $cache?->get('list');
+		if (!is_array($list)) {
+			$list = $this->fetchContainers();
+			// An empty/failed fetch is cached too (shorter TTL) so a dead or slow
+			// container service is not hammered on every request.
+			$cache?->set('list', $list, $list !== [] ? self::CACHE_TTL : self::NEG_CACHE_TTL);
 		}
-		$owner = '';
-		foreach ($this->fetchContainers($ip) as $line) {
+		foreach ($list as $line) {
 			// pod_name|container|image|pod_ip|node_ip|owner|age|status|ssh_port|ssh_user|https_port|uri
 			$cols = explode('|', $line);
 			if (count($cols) >= 6 && trim($cols[3]) === $ip && trim($cols[5]) !== '') {
-				$owner = trim($cols[5]);
-				break;
+				return trim($cols[5]);
 			}
 		}
-		if ($cache !== null) {
-			// Cache the resolved owner (or the miss/failure = '') so a slow container
-			// service is hit at most once per IP per TTL, never on every request.
-			$cache->set('owner:' . $ip, $owner, $owner !== '' ? self::CACHE_TTL : self::NEG_CACHE_TTL);
-		}
-		return $owner;
+		return '';
 	}
 
 	/**
@@ -216,7 +214,7 @@ class IpAuthBackend extends ABackend implements IUserBackend, IApacheBackend {
 	 * $ip in it. 'fields=no' suppresses the header row.
 	 * @return string[]
 	 */
-	private function fetchContainers(string $podIp): array {
+	private function fetchContainers(): array {
 		// Host + password live in user_pods appconfig (podManagementIP with the
 		// legacy 'privateIP' fallback; getContainersPassword).
 		$host = trim($this->appConfig->getValueString('user_pods', 'podManagementIP', ''))
@@ -226,14 +224,13 @@ class IpAuthBackend extends ABackend implements IUserBackend, IApacheBackend {
 		}
 		$password = trim($this->appConfig->getValueString('user_pods', 'getContainersPassword', ''));
 		$url = 'http://' . $host . '/get_containers.php?fields=no'
-			. ($password !== '' ? '&password=' . rawurlencode($password) : '')
-			. '&pod_ip=' . rawurlencode($podIp);
+			. ($password !== '' ? '&password=' . rawurlencode($password) : '');
 		try {
 			$body = (string)$this->clientService->newClient()->get($url, [
 				'verify' => false,
-				// Comfortably above the filtered ~2s response; the whole call is
-				// hit at most once per IP per TTL thanks to the per-IP cache above.
-				'timeout' => 8,
+				// The unfiltered listing takes ~15s on the real cluster; the call is
+				// hit at most once per TTL thanks to the whole-list cache above.
+				'timeout' => 45,
 				// The service is on a private management IP; opt past NC's SSRF block.
 				'nextcloud' => ['allow_local_address' => true],
 			])->getBody();
