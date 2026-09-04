@@ -120,6 +120,7 @@ class RemoteClusterDedupeFilter implements ISearchPlugin {
 			$searchResult->removeCollaboratorResult($type, $uid);
 		}
 
+		$hasClusterExact = false;
 		foreach ($peers as $userId => $info) {
 			// Drop every variant of this cluster peer (all hosts, both buckets).
 			foreach (array_keys($info['shareWiths']) as $sw) {
@@ -144,9 +145,41 @@ class RemoteClusterDedupeFilter implements ISearchPlugin {
 					],
 				]];
 				$searchResult->addResultSet($type, $info['exact'] ? [] : $clean, $info['exact'] ? $clean : []);
+				if ($info['exact']) {
+					$hasClusterExact = true;
+				}
 			}
 		}
 
+		// Core's final sanitising step drops ALL remote results when an exact
+		// local users match exists for an email-alike query. With two distinct
+		// accounts — one matching a LOCAL user by email, one a CROSS-SILO user by
+		// uid (e.g. fror@deic.dk with email fror@dtu.dk, searched as fror@dtu.dk)
+		// — both hits are legitimate and the searcher picks; without this, the
+		// cross-silo account is unfindable by its exact uid from that silo. Only
+		// disarm when we actually hold an exact canonical cluster entry, so stock
+		// behaviour for genuinely local/external matches is untouched.
+		if ($hasClusterExact) {
+			$this->clearExactUserFlag($searchResult);
+		}
+
 		return false;
+	}
+
+	/** Clear core's 'exact users id match' flag (protected property → reflection, best-effort). */
+	private function clearExactUserFlag(ISearchResult $searchResult): void {
+		if (!($searchResult instanceof \OC\Collaboration\Collaborators\SearchResult)) {
+			return;
+		}
+		try {
+			if (!$searchResult->hasExactIdMatch(new SearchResultType('users'))) {
+				return;
+			}
+			$ref = new \ReflectionProperty($searchResult, 'exactIdMatches');
+			$matches = $ref->getValue($searchResult);
+			unset($matches['users']);
+			$ref->setValue($searchResult, $matches);
+		} catch (\Throwable) {
+		}
 	}
 }
