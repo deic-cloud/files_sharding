@@ -297,6 +297,15 @@ class ShardingService {
 		}
 	}
 
+	/**
+	 * The user's home silo, from the table oc_files_sharding_user_servers —
+	 * which is populated ONLY in the MASTER's database (the master is the
+	 * directory: "the master knows every user's home silo", ARCHITECTURE.md).
+	 * On a silo this ALWAYS returns null, including for the silo's own
+	 * residents. Callers running on silos must not treat null as "unknown user"
+	 * or "not resident" — ask the master, or use a silo-valid signal (e.g. a
+	 * STRICT-uid local-account check; see RemoteClusterDedupeFilter).
+	 */
 	public function getUserServer(string $userId): ?Server {
 		try {
 			$us = $this->userServerMapper->findByUserId($userId);
