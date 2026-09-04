@@ -9,6 +9,7 @@ use OCP\Collaboration\Collaborators\ISearchPlugin;
 use OCP\Collaboration\Collaborators\ISearchResult;
 use OCP\Collaboration\Collaborators\SearchResultType;
 use OCP\IRequest;
+use OCP\IUserManager;
 use OCP\Share\IShare;
 
 /**
@@ -33,7 +34,28 @@ class RemoteClusterDedupeFilter implements ISearchPlugin {
 	public function __construct(
 		private ShardingService $shardingService,
 		private IRequest        $request,
+		private IUserManager    $userManager,
 	) {
+	}
+
+	/**
+	 * Silo-aware residency. ShardingService::isResidentHere() answers from the
+	 * master-authoritative user→silo map and calls EVERYONE resident when the map
+	 * is silent — correct for ResidentUserFilter's master-only pruning, wrong
+	 * here: on a silo the map is always silent, and treating cross-silo peers as
+	 * resident would suppress their canonical entry. When the map is silent, fall
+	 * back to "does a local account exist" — true for a silo's own residents
+	 * (skip: core lists them locally), false for cross-silo peers (re-add).
+	 */
+	private function residentHere(string $userId): bool {
+		try {
+			$server = $this->shardingService->getUserServer($userId);
+			if ($server !== null) {
+				return $this->shardingService->isSelf($server);
+			}
+		} catch (\Throwable) {
+		}
+		return $this->userManager->userExists($userId);
 	}
 
 	public function search($search, $limit, $offset, ISearchResult $searchResult): bool {
@@ -68,7 +90,7 @@ class RemoteClusterDedupeFilter implements ISearchPlugin {
 				// a non-resident directory account that is a dead local target —
 				// the remotes-bucket sibling of what ResidentUserFilter strips.
 				if ((int)($entry['value']['shareType'] ?? IShare::TYPE_REMOTE) === IShare::TYPE_USER) {
-					if ($shareWith !== '' && !$this->shardingService->isResidentHere($shareWith)) {
+					if ($shareWith !== '' && !$this->residentHere($shareWith)) {
 						$deadLocals[$shareWith] = true;
 					}
 					continue;
@@ -106,7 +128,7 @@ class RemoteClusterDedupeFilter implements ISearchPlugin {
 			// A peer RESIDENT ON THIS NODE is already offered as a live local
 			// (TYPE_USER) target by core — re-adding a federated variant here is
 			// exactly the "shows twice" duplicate. Variants removed, nothing added.
-			if ($this->shardingService->isResidentHere($userId)) {
+			if ($this->residentHere($userId)) {
 				continue;
 			}
 			// Internal box: re-add a single clean canonical @master entry. External: none.
