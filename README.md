@@ -45,6 +45,18 @@ Then configure each node and register the silo URLs with the master.
 | `files_sharding_master_url` | Silos | Public URL of the master, e.g. `https://sciencedata.dk`. |
 | `files_sharding_master_internal_url` | Silos (optional) | Internal URL for silo→master calls. Falls back to `files_sharding_master_url`. |
 
+### Required appconfig (stock Nextcloud settings the cluster depends on)
+
+```bash
+occ config:app:set files_sharing show_federated_shares_to_trusted_servers_as_internal --value=true --type=boolean
+```
+
+Load-bearing (stock NC key, set on **every** node): the share dialog's
+"Internal shares" box only requests remote share types when this is on — without
+it cluster users on other silos cannot appear there at all, on any node. The
+cluster nodes must also be in each other's trusted-servers list (Federation).
+See [`docs/share-dialog.md`](docs/share-dialog.md).
+
 ### Registering silos
 
 On the master, use the OCC commands to register each silo and assign users:
@@ -153,6 +165,7 @@ Called node-to-node; no Nextcloud session required.
 ## Documentation
 
 - [`docs/share-lifecycle.md`](docs/share-lifecycle.md) — the share model, cross-silo delivery, invariants and the DAV surface.
+- [`docs/share-dialog.md`](docs/share-dialog.md) — the share dialog's two search boxes: all cluster users in the Internal box via the canonical `user@master` identity, the collaborator-search plugins, and the appconfig this depends on.
 - [`docs/x509-auth.md`](docs/x509-auth.md) — X.509 client-certificate authentication: the `/grid/` endpoint, trusted-daemon impersonation (batch/GridFactory I/O), user-pod certs, the two headers, config keys, and the web-server forgery invariant.
 
 ## Development
