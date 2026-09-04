@@ -57,10 +57,22 @@ class RemoteClusterDedupeFilter implements ISearchPlugin {
 		// Gather cluster-peer remote entries, grouped by the user part of shareWith.
 		// @var array<string, array{name: string, exact: bool, shareWiths: array<string,true>}>
 		$peers = [];
+		$deadLocals = [];
 		foreach (['remotes' => false, 'exact' => true] as $key => $isExact) {
 			$bucket = $isExact ? ($current['exact']['remotes'] ?? []) : ($current['remotes'] ?? []);
 			foreach ($bucket as $entry) {
 				$shareWith = (string)($entry['value']['shareWith'] ?? '');
+				// Core's addressbook plugins (system addressbook = the federation
+				// SyncJob's cluster contacts) can emit a TYPE_USER entry into the
+				// REMOTES bucket when a contact's cloud id points at this host. For
+				// a non-resident directory account that is a dead local target —
+				// the remotes-bucket sibling of what ResidentUserFilter strips.
+				if ((int)($entry['value']['shareType'] ?? IShare::TYPE_REMOTE) === IShare::TYPE_USER) {
+					if ($shareWith !== '' && !$this->shardingService->isResidentHere($shareWith)) {
+						$deadLocals[$shareWith] = true;
+					}
+					continue;
+				}
 				$at = strrpos($shareWith, '@');
 				if ($at === false) {
 					continue;
@@ -80,10 +92,22 @@ class RemoteClusterDedupeFilter implements ISearchPlugin {
 			}
 		}
 
+		// Purge the dead-local artifacts (shareWith is the bare uid, so this
+		// cannot touch a genuine federated entry — those carry @host).
+		foreach (array_keys($deadLocals) as $uid) {
+			$searchResult->removeCollaboratorResult($type, $uid);
+		}
+
 		foreach ($peers as $userId => $info) {
 			// Drop every variant of this cluster peer (all hosts, both buckets).
 			foreach (array_keys($info['shareWiths']) as $sw) {
 				$searchResult->removeCollaboratorResult($type, $sw);
+			}
+			// A peer RESIDENT ON THIS NODE is already offered as a live local
+			// (TYPE_USER) target by core — re-adding a federated variant here is
+			// exactly the "shows twice" duplicate. Variants removed, nothing added.
+			if ($this->shardingService->isResidentHere($userId)) {
+				continue;
 			}
 			// Internal box: re-add a single clean canonical @master entry. External: none.
 			if ($internalBox && $masterHost !== '') {

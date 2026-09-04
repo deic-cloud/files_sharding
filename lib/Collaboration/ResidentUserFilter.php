@@ -20,6 +20,14 @@ use OCP\Collaboration\Collaborators\SearchResultType;
  * leaving only the federated @master entry MasterUserSearch adds. On a silo the
  * user→silo map is absent, so isResidentHere() treats everyone as resident and
  * this is a no-op (silos normally hold only their own residents anyway).
+ *
+ * One subtlety: core's UserPlugin marks "exact users id match" BEFORE this
+ * filter removes a non-resident directory account, and core's final sanitising
+ * step ("exact local user match on an email-alike query → drop all remote and
+ * email results") then wipes the canonical federated entry MasterUserSearch
+ * adds — on the master, a full-uid search for any cross-silo user returned
+ * NOTHING. When the exact users bucket ends up empty after our removal, the
+ * stale flag is cleared (protected core property → reflection, best-effort).
  */
 class ResidentUserFilter implements ISearchPlugin {
 	public function __construct(
@@ -53,6 +61,35 @@ class ResidentUserFilter implements ISearchPlugin {
 			}
 		}
 
+		$this->clearStaleExactUserFlag($searchResult);
+
 		return false;
+	}
+
+	/**
+	 * If the "exact users id match" flag is set but the exact users bucket is now
+	 * empty, the match was a non-resident directory account we just removed:
+	 * clear the flag so core's final sanitising step doesn't drop the federated
+	 * results. Without the clear nothing else regresses — full-uid cross-silo
+	 * search on the master just stays empty.
+	 */
+	private function clearStaleExactUserFlag(ISearchResult $searchResult): void {
+		if (!($searchResult instanceof \OC\Collaboration\Collaborators\SearchResult)) {
+			return;
+		}
+		try {
+			if (!$searchResult->hasExactIdMatch(new SearchResultType('users'))) {
+				return;
+			}
+			$current = $searchResult->asArray();
+			if (!empty($current['exact']['users'])) {
+				return; // a genuine exact match survived — leave the flag alone
+			}
+			$ref = new \ReflectionProperty($searchResult, 'exactIdMatches');
+			$matches = $ref->getValue($searchResult);
+			unset($matches['users']);
+			$ref->setValue($searchResult, $matches);
+		} catch (\Throwable) {
+		}
 	}
 }
