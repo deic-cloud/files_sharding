@@ -55,7 +55,12 @@ class RemoteClusterDedupeFilter implements ISearchPlugin {
 			}
 		} catch (\Throwable) {
 		}
-		return $this->userManager->userExists($userId);
+		// STRICT uid match: userExists()/get() also resolve EMAIL addresses (a
+		// local account whose email equals another cluster user's uid — e.g.
+		// fror@deic.dk with email fror@dtu.dk — would wrongly count as resident
+		// and suppress the cross-silo user's canonical entry).
+		$u = $this->userManager->get($userId);
+		return $u !== null && strcasecmp($u->getUID(), $userId) === 0;
 	}
 
 	public function search($search, $limit, $offset, ISearchResult $searchResult): bool {
