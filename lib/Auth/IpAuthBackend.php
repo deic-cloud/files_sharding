@@ -142,18 +142,14 @@ class IpAuthBackend extends ABackend implements IUserBackend, IApacheBackend {
 			return '';
 		}
 
-		$trustedUser = trim($this->appConfig->getValueString('user_pods', 'trustedUser', ''))
-			?: trim($this->config->getSystemValue('vlantrusteduser', ''));
-
-		// 4. Map the source IP to the owner of the container running there. The
-		//    only owners that can lead anywhere are the Basic-auth username (an
-		//    ordinary pod fetching its owner's files) and the trusted service
-		//    user (impersonation) — passed as candidates for the fast filtered
-		//    lookup; the resolved owner is still taken from the service's answer.
-		$owner = $this->ownerForIp($ip, [$authUser, $trustedUser]);
+		// 4. Map the source IP to the owner of the container running there.
+		$owner = $this->ownerForIp($ip);
 		if ($owner === '') {
 			return '';
 		}
+
+		$trustedUser = trim($this->appConfig->getValueString('user_pods', 'trustedUser', ''))
+			?: trim($this->config->getSystemValue('vlantrusteduser', ''));
 
 		// Container owned by the trusted user → honour the Basic-auth username
 		// (impersonation on behalf of any user).
@@ -187,26 +183,16 @@ class IpAuthBackend extends ABackend implements IUserBackend, IApacheBackend {
 	}
 
 	/** Owner (NC uid) of the container whose pod IP matches $ip, or ''. Cached per IP. */
-	/** @param string[] $candidateOwners owners worth a filtered lookup (deduped, ''-skipped) */
-	private function ownerForIp(string $ip, array $candidateOwners = []): string {
+	private function ownerForIp(string $ip): string {
 		$cache = $this->cacheFactory->isAvailable() ? $this->cacheFactory->createLocal('files_sharding_podips') : null;
 		$cached = $cache?->get('owner:' . $ip);
 		if (is_string($cached)) {
 			return $cached;
 		}
 
-		// 1) Fast path: get_containers.php supports ?pod_ip= — but only together
-		//    with a user_id, so it can't answer "who owns this IP?" directly.
-		//    There are exactly two owners that matter (the Basic-auth username
-		//    for an ordinary pod, the trusted service user for impersonation), so
-		//    probe those. The owner is still read from the service's answer.
-		$owner = '';
-		foreach (array_unique(array_filter($candidateOwners)) as $cand) {
-			$owner = $this->scanForIp($this->fetchContainers(['user_id' => $cand, 'pod_ip' => $ip]), $ip);
-			if ($owner !== '') {
-				break;
-			}
-		}
+		// 1) Fast path: get_containers.php answers a ?pod_ip= lookup directly
+		//    (~0.3s). The owner is read from the service's answer.
+		$owner = $this->scanForIp($this->fetchContainers(['pod_ip' => $ip]), $ip);
 
 		// 2) Fallback: the FULL list, cached whole (the old chooser checkIP
 		//    pattern) — covers a host script without the pod_ip filter. The
