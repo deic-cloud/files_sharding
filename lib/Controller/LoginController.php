@@ -145,7 +145,12 @@ class LoginController extends Controller {
 		if ($this->userSession->isLoggedIn()) {
 			$this->userSession->logout();
 		}
-		return new RedirectResponse($this->urlGenerator->getAbsoluteURL('/'));
+		// Post-logout landing. '/' is fine on a plain install, but when a SAML
+		// backend with multiple user backends is enabled, an anonymous '/' walks
+		// into the backend-select page — so a deployment can point logouts at a
+		// public welcome page instead via this system value.
+		$landing = trim((string)$this->config->getSystemValue('files_sharding_logout_url', ''));
+		return new RedirectResponse($landing !== '' ? $landing : $this->urlGenerator->getAbsoluteURL('/'));
 	}
 
 	/**

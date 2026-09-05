@@ -44,6 +44,7 @@ Then configure each node and register the silo URLs with the master.
 | `files_sharding_master` | Master only | Set to `true`. Omit or `false` on silos. |
 | `files_sharding_master_url` | Silos | Public URL of the master, e.g. `https://sciencedata.dk`. |
 | `files_sharding_master_internal_url` | Silos (optional) | Internal URL for silo→master calls. Falls back to `files_sharding_master_url`. |
+| `files_sharding_logout_url` | Master (optional) | Where the browser lands after logout (e.g. a public welcome page). Default: `/` — note that with user_saml + multiple user backends, an anonymous `/` shows the backend-select page. |
 
 ### Required appconfig (stock Nextcloud settings the cluster depends on)
 
