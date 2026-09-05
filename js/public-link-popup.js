@@ -106,6 +106,27 @@
 		}).catch(function () { return [] })
 	}
 
+	/** meta_data tags already on the file. */
+	function mdFileTags(fileId) {
+		return ocs('POST', MD_OCS + '/filetags', { fileids: [fileId] }).then(function (r) {
+			var files = ((r.ocs && r.ocs.data && r.ocs.data.files) || [])
+			for (var i = 0; i < files.length; i++) {
+				if (String(files[i].id) === String(fileId)) { return files[i].tags || [] }
+			}
+			return []
+		}).catch(function () { return [] })
+	}
+
+	/** Existing metadata values for file+tag: {keyid: value}. */
+	function mdFileValues(fileId, tagId) {
+		return ocs('GET', MD_OCS + '/filemeta?fileid=' + fileId + '&tagid=' + tagId).then(function (r) {
+			var rows = ((r.ocs && r.ocs.data && r.ocs.data.data) || [])
+			var map = {}
+			rows.forEach(function (row) { map[row.keyid] = row.value })
+			return map
+		}).catch(function () { return {} })
+	}
+
 	function buildMetaPanel(box, state) {
 		var panel = el('div', { style: 'margin:0 0 12px 0;padding:10px 12px;border:1px solid var(--color-border-dark,#ddd);border-radius:8px;background:var(--color-background-hover,#fafafa);' })
 		panel.appendChild(el('div', {
@@ -117,7 +138,7 @@
 		var addBtn = el('button', { text: t('files_sharding', '+ Add another schema'), style: 'font-size:12px;background:transparent;border:none;color:var(--color-primary-element,#0082c9);cursor:pointer;padding:4px 0;' })
 		panel.appendChild(addBtn)
 
-		function addBlock(preselect) {
+		function addBlock(preselect, prefillValues) {
 			var block = { tag: null, keys: [], inputs: {}, touched: false }
 			var wrap = el('div', { style: 'margin-bottom:10px;' })
 			var sel = el('select', { style: 'font-size:13px;padding:4px 6px;border:1px solid var(--color-border-dark,#ccc);border-radius:4px;margin-bottom:6px;max-width:100%;' })
@@ -160,6 +181,15 @@
 						block.keyIds = {}
 						keys.forEach(function (k) { block.keyIds[k.name] = k.id })
 						renderFields(block.keys)
+						// Read existing values back (reopen case) — fill, don't mark touched.
+						if (prefillValues) {
+							block.keys.forEach(function (name) {
+								var kid = block.keyIds[name]
+								if (kid !== undefined && prefillValues[kid] !== undefined && block.inputs[name]) {
+									block.inputs[name].value = prefillValues[kid]
+								}
+							})
+						}
 					})
 				}
 			}
@@ -174,7 +204,11 @@
 		}
 
 		addBtn.addEventListener('click', function () { addBlock(null) })
-		addBlock('public_data')
+		if (state.prefill && state.prefill.length > 0) {
+			state.prefill.forEach(function (pf) { addBlock(pf.name, pf.values) })
+		} else {
+			addBlock('public_data')
+		}
 		return panel
 	}
 
@@ -358,10 +392,25 @@
 			box.appendChild(metaSlot)
 			var syncPanel = function () {
 				if (listedBox.checked && mdAvailable() && !metaPanel) {
-					mdTags().then(function (tags) {
-						if (metaPanel || !listedBox.checked) { return }
+					Promise.all([mdTags(), mdFileTags(share.file_source)]).then(function (res) {
+						if (metaPanel || !listedBox.checked) { return null }
+						var tags = res[0]
 						metaState.tags = tags
 						metaState.blocks = []
+						// Schemas already on the file → prefill blocks with their values.
+						var byId = {}
+						tags.forEach(function (tg) { byId[tg.id] = tg })
+						var existing = (res[1] || []).map(function (tg) {
+							return byId[tg.id] || (tg.name ? tg : null)
+						}).filter(Boolean)
+						return Promise.all(existing.map(function (tg) {
+							return mdFileValues(share.file_source, tg.id).then(function (values) {
+								return { name: tg.name, values: values }
+							})
+						}))
+					}).then(function (prefill) {
+						if (prefill === null || metaPanel || !listedBox.checked) { return }
+						metaState.prefill = prefill
 						metaPanel = buildMetaPanel(box, metaState)
 						metaSlot.appendChild(metaPanel)
 					})
