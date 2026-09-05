@@ -135,22 +135,54 @@
 		}))
 		var blocks = el('div', {})
 		panel.appendChild(blocks)
-		var addBtn = el('button', { text: t('files_sharding', '+ Add another schema'), style: 'font-size:12px;background:transparent;border:none;color:var(--color-primary-element,#0082c9);cursor:pointer;padding:4px 0;' })
+		var addBtn = el('button', { type: 'button', text: t('files_sharding', '+ Add another schema'), style: 'font-size:12px;background:transparent;border:none;color:var(--color-primary-element,#0082c9);cursor:pointer;padding:4px 0;' })
 		panel.appendChild(addBtn)
 
+		state.removedTagIds = state.removedTagIds || []
+
+		function usedNames() {
+			return state.blocks.map(function (b) { return b.tag && b.tag.name }).filter(Boolean)
+		}
+
+		/** Schemas not yet used by another block ('public_data' virtual if no real one). */
+		function availableOptions(keepName) {
+			var used = usedNames().filter(function (n) { return n !== keepName })
+			var opts = []
+			var havePd = false
+			state.tags.forEach(function (tg) {
+				if (tg.name === 'public_data') { havePd = true }
+				if (used.indexOf(tg.name) === -1) { opts.push(tg) }
+			})
+			if (!havePd && used.indexOf('public_data') === -1) {
+				opts.unshift({ name: 'public_data', id: null, virtual: true })
+			}
+			// public_data first, rest alphabetical
+			opts.sort(function (a, b) {
+				if (a.name === 'public_data') { return -1 }
+				if (b.name === 'public_data') { return 1 }
+				return a.name.localeCompare(b.name)
+			})
+			return opts
+		}
+
+		function refreshAddBtn() {
+			addBtn.disabled = availableOptions(null).length === 0
+			addBtn.style.opacity = addBtn.disabled ? '0.5' : '1'
+		}
+
 		function addBlock(preselect, prefillValues) {
+			var opts = availableOptions(preselect)
+			if (opts.length === 0) { refreshAddBtn(); return }
 			var block = { tag: null, keys: [], inputs: {}, touched: false }
 			var wrap = el('div', { style: 'margin-bottom:10px;' })
-			var sel = el('select', { style: 'font-size:13px;padding:4px 6px;border:1px solid var(--color-border-dark,#ccc);border-radius:4px;margin-bottom:6px;max-width:100%;' })
-			var fields = el('div', { style: 'display:flex;flex-direction:column;gap:4px;' })
-			wrap.appendChild(sel); wrap.appendChild(fields)
+			var head = el('div', { style: 'display:flex;align-items:center;gap:6px;margin-bottom:6px;' })
+			var sel = el('select', { style: 'font-size:13px;padding:4px 6px;border:1px solid var(--color-border-dark,#ccc);border-radius:4px;max-width:100%;flex:1;' })
+			var rmBtn = el('button', { type: 'button', title: t('files_sharding', 'Remove this schema from the entry'), text: '\u2715', style: 'font-size:13px;background:transparent;border:none;color:var(--color-text-maxcontrast,#888);cursor:pointer;padding:2px 6px;' })
+			head.appendChild(sel); head.appendChild(rmBtn)
+			var fields = el('div', { style: 'display:flex;flex-direction:column;gap:4px;max-height:40vh;overflow-y:auto;' })
+			wrap.appendChild(head); wrap.appendChild(fields)
 			blocks.appendChild(wrap)
 
-			var opts = [{ name: 'public_data', id: null, virtual: true }]
-			state.tags.forEach(function (tg) {
-				if (tg.name !== 'public_data') { opts.push(tg) }
-				else { opts[0] = tg } // real public_data replaces the virtual default
-			})
 			opts.forEach(function (tg) {
 				var o = el('option', { text: tg.name })
 				o._tag = tg
@@ -160,6 +192,10 @@
 			function renderFields(keys) {
 				fields.textContent = ''
 				block.inputs = {}
+				if (keys.length === 0) {
+					fields.appendChild(el('div', { text: t('files_sharding', 'This schema has no fields defined.'), style: 'font-size:12px;color:var(--color-text-maxcontrast,#888);' }))
+					return
+				}
 				keys.forEach(function (k) {
 					var input = el('input', { type: 'text', placeholder: k, style: 'font-size:13px;padding:4px 6px;border:1px solid var(--color-border-dark,#ccc);border-radius:4px;' })
 					input.addEventListener('input', function () { block.touched = true })
@@ -175,25 +211,44 @@
 				if (tg.virtual) {
 					block.keys = PD_DEFAULT_KEYS.slice()
 					renderFields(block.keys)
-				} else {
-					mdKeys(tg.id).then(function (keys) {
-						block.keys = keys.map(function (k) { return k.name })
-						block.keyIds = {}
-						keys.forEach(function (k) { block.keyIds[k.name] = k.id })
-						renderFields(block.keys)
-						// Read existing values back (reopen case) — fill, don't mark touched.
-						if (prefillValues) {
-							block.keys.forEach(function (name) {
-								var kid = block.keyIds[name]
-								if (kid !== undefined && prefillValues[kid] !== undefined && block.inputs[name]) {
-									block.inputs[name].value = prefillValues[kid]
-								}
-							})
-						}
-					})
+					refreshAddBtn()
+					return
 				}
+				fields.textContent = ''
+				fields.appendChild(el('div', { text: t('files_sharding', 'Loading fields…'), style: 'font-size:12px;color:var(--color-text-maxcontrast,#888);' }))
+				mdKeys(tg.id).then(function (keys) {
+					if (block.tag !== tg) { return } // selection changed while loading
+					block.keys = keys.map(function (k) { return k.name })
+					block.keyIds = {}
+					keys.forEach(function (k) { block.keyIds[k.name] = k.id })
+					renderFields(block.keys)
+					// Read existing values back (reopen case) — fill, don't mark touched.
+					if (prefillValues) {
+						block.keys.forEach(function (name) {
+							var kid = block.keyIds[name]
+							if (kid !== undefined && prefillValues[kid] !== undefined && block.inputs[name]) {
+								block.inputs[name].value = prefillValues[kid]
+							}
+						})
+					}
+					refreshAddBtn()
+				}).catch(function (e) {
+					fields.textContent = ''
+					fields.appendChild(el('div', { text: t('files_sharding', 'Could not load the fields of this schema.') + ' ' + String(e && e.message || ''), style: 'font-size:12px;color:var(--color-error-text,#8a0000);' }))
+				})
 			}
 			sel.addEventListener('change', function () { onSelect(false) })
+			rmBtn.addEventListener('click', function () {
+				// Un-list the schema from this entry. For a schema that was already
+				// saved on the file, the actual removal happens on Done.
+				if (block.tag && !block.tag.virtual && prefillValues) {
+					state.removedTagIds.push(block.tag.id)
+				}
+				var idx = state.blocks.indexOf(block)
+				if (idx !== -1) { state.blocks.splice(idx, 1) }
+				wrap.remove()
+				refreshAddBtn()
+			})
 			if (preselect) {
 				for (var i = 0; i < sel.options.length; i++) {
 					if (sel.options[i]._tag.name === preselect) { sel.selectedIndex = i; break }
@@ -201,6 +256,7 @@
 			}
 			onSelect(true)
 			state.blocks.push(block)
+			refreshAddBtn()
 		}
 
 		addBtn.addEventListener('click', function () { addBlock(null) })
@@ -209,6 +265,7 @@
 		} else {
 			addBlock('public_data')
 		}
+		refreshAddBtn()
 		return panel
 	}
 
@@ -427,10 +484,15 @@
 			style: 'margin:4px 0 12px 0;font-size:13px;color:var(--color-text-maxcontrast,#666);',
 		}))
 
-		var row = el('div', { style: 'text-align:right;' })
-		var done = el('button', { text: t('files_sharding', 'Done'), style: BTN_PRIMARY })
+		var row = el('div', { style: 'text-align:right;display:flex;justify-content:flex-end;gap:8px;' })
+		var cancelBtn = el('button', { type: 'button', text: t('files_sharding', 'Cancel'), style: BTN })
+		var done = el('button', { type: 'button', text: t('files_sharding', 'Done'), style: BTN_PRIMARY })
+		row.appendChild(cancelBtn)
 		row.appendChild(done)
 		box.appendChild(row)
+
+		// Close without saving anything (accidental edits stay unsaved).
+		cancelBtn.addEventListener('click', function () { close() })
 
 		done.addEventListener('click', function () {
 			done.disabled = true
@@ -452,6 +514,11 @@
 			if (listedBox && listedBox.checked && metaState.blocks.length > 0) {
 				jobs.push(saveMetaPanel(metaState, share.file_source))
 			}
+			// Schemas removed from the entry (✕): untag on Done. Stored values are
+			// left in place server-side — re-adding the schema restores them.
+			;(metaState.removedTagIds || []).forEach(function (tid) {
+				jobs.push(ocs('DELETE', MD_OCS + '/filetags', { fileid: share.file_source, tagid: tid }))
+			})
 			Promise.all(jobs)
 				.then(function () {
 					close()
