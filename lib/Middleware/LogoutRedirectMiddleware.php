@@ -46,7 +46,16 @@ class LogoutRedirectMiddleware extends Middleware {
 		$this->clearSessionCookies();
 
 		if ($this->shardingService->isMaster()) {
-			return $response; // already on the master — core's redirect to its own login is fine
+			// Core redirects to its own login — fine on a plain install, but with
+			// user_saml + multiple user backends the login route walks the
+			// logged-out browser into the backend-select page. Land on the
+			// configured public page instead (same value the master-side
+			// files_sharding logout endpoint honours for silo hand-offs).
+			$landing = trim($this->config->getSystemValueString('files_sharding_logout_url', ''));
+			if ($landing !== '') {
+				return new RedirectResponse($landing);
+			}
+			return $response;
 		}
 		$master = $this->shardingService->masterUrl();
 		if ($master === '') {
