@@ -336,7 +336,23 @@
 			listedBox = el('input', { type: 'checkbox' })
 			listedBox.checked = wasListed
 			lbl.appendChild(listedBox)
-			lbl.appendChild(el('span', { text: t('files_sharding', 'List in the public dataset catalog') }))
+			// Label with the catalog name as a link (opens the catalog in a new tab).
+			// /remote.php/sites/<site> is the always-valid serving path — deployments
+			// with pretty URLs (files_picocms.url_prefix='') rewrite it, app-store
+			// installs serve it directly.
+			var lblSpan = el('span', {})
+			lblSpan.appendChild(document.createTextNode(t('files_sharding', 'List in the') + ' '))
+			var catA = el('a', {
+				href: (OC.webroot || '') + '/remote.php/sites/public',
+				target: '_blank',
+				rel: 'noopener',
+				text: t('files_sharding', 'public dataset catalog'),
+				style: 'text-decoration:underline;',
+			})
+			// Don't let clicking the link toggle the checkbox (it sits inside the label).
+			catA.addEventListener('click', function (ev) { ev.stopPropagation() })
+			lblSpan.appendChild(catA)
+			lbl.appendChild(lblSpan)
 			box.appendChild(lbl)
 			var metaSlot = el('div', {})
 			box.appendChild(metaSlot)
