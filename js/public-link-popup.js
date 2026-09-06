@@ -199,8 +199,23 @@
 				keys.forEach(function (k) {
 					var line = el('div', { style: 'display:flex;align-items:center;gap:6px;' })
 					var lab = el('label', { text: k + ':', title: k, style: 'font-size:12px;color:var(--color-text-maxcontrast,#666);flex:0 0 30%;max-width:30%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;' })
-					var input = el('input', { type: 'text', title: k, style: 'font-size:13px;padding:4px 6px;border:1px solid var(--color-border-dark,#ccc);border-radius:4px;flex:1;min-width:0;' })
-					input.addEventListener('input', function () { block.touched = true })
+					// A key with allowed values renders as a dropdown (the old
+					// system's 'controlled' fields — e.g. todo's priority/status).
+					var allowed = []
+					try {
+						var meta = (block.keyMeta || {})[k]
+						if (meta && meta.allowed_values) { allowed = JSON.parse(meta.allowed_values) || [] }
+					} catch (e) { allowed = [] }
+					var input
+					if (allowed.length > 0) {
+						input = el('select', { title: k, style: 'font-size:13px;padding:4px 6px;border:1px solid var(--color-border-dark,#ccc);border-radius:4px;flex:1;min-width:0;' })
+						input.appendChild(el('option', { text: '', value: '' }))
+						allowed.forEach(function (v) { input.appendChild(el('option', { text: v, value: v })) })
+						input.addEventListener('change', function () { block.touched = true })
+					} else {
+						input = el('input', { type: 'text', title: k, style: 'font-size:13px;padding:4px 6px;border:1px solid var(--color-border-dark,#ccc);border-radius:4px;flex:1;min-width:0;' })
+						input.addEventListener('input', function () { block.touched = true })
+					}
 					block.inputs[k] = input
 					line.appendChild(lab); line.appendChild(input)
 					fields.appendChild(line)
@@ -223,7 +238,11 @@
 					if (block.tag !== tg) { return } // selection changed while loading
 					block.keys = keys.map(function (k) { return k.name })
 					block.keyIds = {}
-					keys.forEach(function (k) { block.keyIds[k.name] = k.id })
+					block.keyMeta = {}
+					keys.forEach(function (k) {
+						block.keyIds[k.name] = k.id
+						block.keyMeta[k.name] = k
+					})
 					renderFields(block.keys)
 					// Read existing values back (reopen case) — fill, don't mark touched.
 					if (prefillValues) {
