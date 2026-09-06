@@ -46,7 +46,7 @@
 	}
 
 	var OVERLAY_STYLE = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10000;display:flex;align-items:center;justify-content:center;'
-	var BOX_STYLE = 'background:var(--color-main-background,#fff);color:var(--color-main-text,#222);border-radius:var(--border-radius-large,10px);max-width:520px;width:92%;padding:20px 24px;box-shadow:0 2px 24px rgba(0,0,0,.4);font-size:15px;'
+	var BOX_STYLE = 'background:var(--color-main-background,#fff);color:var(--color-main-text,#222);border-radius:var(--border-radius-large,10px);max-width:520px;width:92%;padding:20px 24px;box-shadow:0 2px 24px rgba(0,0,0,.4);font-size:15px;max-height:85vh;overflow-y:auto;'
 	var BTN = 'margin:0 4px;padding:8px 16px;border-radius:var(--border-radius-pill,20px);border:1px solid var(--color-border-dark,#ccc);background:var(--color-main-background,#fff);color:inherit;cursor:pointer;'
 	var BTN_PRIMARY = BTN + 'background:var(--color-primary-element,#0082c9);color:var(--color-primary-element-text,#fff);border-color:transparent;'
 
@@ -197,10 +197,13 @@
 					return
 				}
 				keys.forEach(function (k) {
-					var input = el('input', { type: 'text', placeholder: k, style: 'font-size:13px;padding:4px 6px;border:1px solid var(--color-border-dark,#ccc);border-radius:4px;' })
+					var line = el('div', { style: 'display:flex;align-items:center;gap:6px;' })
+					var lab = el('label', { text: k + ':', title: k, style: 'font-size:12px;color:var(--color-text-maxcontrast,#666);flex:0 0 30%;max-width:30%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;' })
+					var input = el('input', { type: 'text', title: k, style: 'font-size:13px;padding:4px 6px;border:1px solid var(--color-border-dark,#ccc);border-radius:4px;flex:1;min-width:0;' })
 					input.addEventListener('input', function () { block.touched = true })
 					block.inputs[k] = input
-					fields.appendChild(input)
+					line.appendChild(lab); line.appendChild(input)
+					fields.appendChild(line)
 				})
 			}
 
