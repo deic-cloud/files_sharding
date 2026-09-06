@@ -145,7 +145,13 @@ class Application extends App implements IBootstrap {
 		try {
 			$request = $server->get(\OCP\IRequest::class);
 			$uri = $request->getRequestUri();
-			if (!preg_match('#^/remote\.php/(webdav|dav)(/|$)#', $uri)) {
+			// Cover EVERY DAV surface that serves the user's own tree: core's
+			// /remote.php/webdav + /remote.php/dav, AND the legacy pretty
+			// endpoints (/files, /grid — served by appinfo/legacydav.php, reached
+			// directly by rewrite or via their /remote.php service names). Without
+			// them a sync client on the pretty URL would see received shares that
+			// the canonical endpoints conceal.
+			if (!preg_match('#^/(remote\.php/(webdav|dav|sddav|files|grid)|files|grid)(/|$)#', $uri)) {
 				return;
 			}
 			if ($request->getHeader('Authorization') === '') {
