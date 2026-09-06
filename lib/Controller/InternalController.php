@@ -127,6 +127,11 @@ class InternalController extends Controller {
 		$matches = $this->userManager->search($q, $limit);
 		$users   = [];
 		foreach ($matches as $user) {
+			// Service accounts etc. stay out of people-search (share dialog AND
+			// group member-add both resolve through this endpoint).
+			if ($this->shardingService->isHiddenUser($user->getUID())) {
+				continue;
+			}
 			$server = $this->shardingService->getUserServer($user->getUID());
 			if ($server === null) {
 				continue;

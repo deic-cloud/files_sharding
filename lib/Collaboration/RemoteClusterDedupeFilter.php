@@ -134,7 +134,7 @@ class RemoteClusterDedupeFilter implements ISearchPlugin {
 			// A peer RESIDENT ON THIS NODE is already offered as a live local
 			// (TYPE_USER) target by core — re-adding a federated variant here is
 			// exactly the "shows twice" duplicate. Variants removed, nothing added.
-			if ($this->residentHere($userId)) {
+			if ($this->residentHere($userId) || $this->shardingService->isHiddenUser($userId)) {
 				continue;
 			}
 			// Internal box: re-add a single clean canonical @master entry. External: none.

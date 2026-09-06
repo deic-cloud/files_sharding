@@ -55,7 +55,8 @@ class ResidentUserFilter implements ISearchPlugin {
 					continue;
 				}
 				$checked[$uid] = true;
-				if (!$this->shardingService->isResidentHere($uid)) {
+				if (!$this->shardingService->isResidentHere($uid)
+					|| $this->shardingService->isHiddenUser($uid)) {
 					$searchResult->removeCollaboratorResult($type, $uid);
 				}
 			}

@@ -149,6 +149,25 @@ class ShardingService {
 	 * treated as resident so we never strip a user the local backend legitimately
 	 * returned. Authoritative only where the map lives: the master.
 	 */
+	/**
+	 * Users hidden from people-search (share dialog, group member-add) — system
+	 * value files_sharding_hidden_users, a list of uids. Meant for service
+	 * accounts (e.g. a deployment's content/batch accounts); also the seam a
+	 * per-user "don't find me" preference would plug into.
+	 */
+	public function isHiddenUser(string $userId): bool {
+		$hidden = $this->config->getSystemValue('files_sharding_hidden_users', []);
+		if (!is_array($hidden)) {
+			return false;
+		}
+		foreach ($hidden as $h) {
+			if (strcasecmp((string)$h, $userId) === 0) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	public function isResidentHere(string $userId): bool {
 		$s = $this->getUserServer($userId);
 		if ($s === null) {
