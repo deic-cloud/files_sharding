@@ -33,6 +33,7 @@ class ShareSyncService {
 		private IUserManager         $userManager,
 		private IEventDispatcher     $eventDispatcher,
 		private LoggerInterface      $logger,
+		private ExternalStoragePurger $storagePurger,
 	) {
 	}
 
@@ -69,7 +70,7 @@ class ShareSyncService {
 
 		// Existing local mirrors for this user (id needed for pruning).
 		$qb = $this->db->getQueryBuilder();
-		$qb->select('id', 'remote', 'remote_id')
+		$qb->select('id', 'remote', 'remote_id', 'share_token')
 		   ->from('share_external')
 		   ->where($qb->expr()->eq('user', $qb->createNamedParameter($userId)));
 		$cursor = $qb->executeQuery();
@@ -78,7 +79,8 @@ class ShareSyncService {
 		while ($row = $cursor->fetch()) {
 			$key = rtrim((string)$row['remote'], '/') . "\0" . (string)$row['remote_id'];
 			$existing[$key] = true;
-			$localRows[]    = ['id' => (int)$row['id'], 'key' => $key];
+			$localRows[]    = ['id' => (int)$row['id'], 'key' => $key,
+				'token' => (string)$row['share_token'], 'remote' => (string)$row['remote']];
 		}
 		$cursor->closeCursor();
 
@@ -172,6 +174,7 @@ class ShareSyncService {
 		// master-mediated (true in the current model; revisit if silos ever receive
 		// direct external OCM shares the master doesn't know about).
 		$pruned = 0;
+		$purgePairs = [];
 		foreach ($localRows as $lr) {
 			if (isset($wanted[$lr['key']])) {
 				continue;
@@ -182,6 +185,7 @@ class ShareSyncService {
 				   ->where($dq->expr()->eq('id', $dq->createNamedParameter($lr['id'], IQueryBuilder::PARAM_INT)));
 				$dq->executeStatement();
 				$pruned++;
+				$purgePairs[] = ['token' => $lr['token'], 'remote' => $lr['remote']];
 				// Clear the "X shared Y with you" notice for the share that's now gone,
 				// so a re-share (new id each time) doesn't leave a growing pile of stale
 				// notifications (and repeat emails) for shares that no longer exist.
@@ -195,6 +199,12 @@ class ShareSyncService {
 			} catch (\Throwable $e) {
 				$this->logger->warning("files_sharding: ShareSyncService: failed to prune stale share {$lr['id']} for {$userId}: " . $e->getMessage());
 			}
+		}
+
+		// Drop the storage bookkeeping (oc_storages/oc_filecache/oc_mounts) the
+		// pruned shares leave behind — see ExternalStoragePurger.
+		if ($purgePairs !== []) {
+			$this->storagePurger->purge($purgePairs);
 		}
 
 		if ($inserted > 0 || $pruned > 0) {

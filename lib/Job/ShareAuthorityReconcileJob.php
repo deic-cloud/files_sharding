@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace OCA\FilesSharding\Job;
 
+use OCA\FilesSharding\Service\ExternalStoragePurger;
 use OCA\FilesSharding\Service\InterServerClient;
 use OCA\FilesSharding\Service\ShardingService;
 use OCP\AppFramework\Utility\ITimeFactory;
@@ -42,6 +43,7 @@ class ShareAuthorityReconcileJob extends TimedJob {
 		private ShardingService   $shardingService,
 		private InterServerClient $client,
 		private LoggerInterface   $logger,
+		private ExternalStoragePurger $storagePurger,
 	) {
 		parent::__construct($time);
 		$this->setInterval(900); // every 15 min — eventual, cheap (one call per owner silo)
@@ -53,13 +55,14 @@ class ShareAuthorityReconcileJob extends TimedJob {
 		}
 
 		$qb = $this->db->getQueryBuilder();
-		$qb->select('id', 'remote', 'remote_id')->from('share_external');
+		$qb->select('id', 'remote', 'remote_id', 'share_token')->from('share_external');
 		$cur = $qb->executeQuery();
 		$rows = $cur->fetchAllAssociative();
 		$cur->closeCursor();
 
 		// remote(sans trailing slash) => [ remote_id(string) => [local row ids] ]
 		$byRemote = [];
+		$rowInfo  = [];
 		foreach ($rows as $r) {
 			$remote = rtrim((string)$r['remote'], '/');
 			$rid    = (string)$r['remote_id'];
@@ -67,6 +70,7 @@ class ShareAuthorityReconcileJob extends TimedJob {
 				continue;
 			}
 			$byRemote[$remote][$rid][] = (int)$r['id'];
+			$rowInfo[(int)$r['id']] = ['token' => (string)$r['share_token'], 'remote' => (string)$r['remote']];
 		}
 
 		$servers = $this->shardingService->getAllServers();
@@ -117,6 +121,8 @@ class ShareAuthorityReconcileJob extends TimedJob {
 			$del->setParameter('ids', $deadRowIds, IQueryBuilder::PARAM_INT_ARRAY);
 			$del->executeStatement();
 			$prunedTotal += count($deadRowIds);
+			// Drop the storage bookkeeping the pruned mirrors leave behind.
+			$this->storagePurger->purge(array_values(array_intersect_key($rowInfo, array_flip($deadRowIds))));
 			$this->logger->info('files_sharding: ShareAuthorityReconcileJob: pruned ' . count($deadRowIds)
 				. ' stale mirror(s) owned by ' . $remote);
 		}
