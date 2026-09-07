@@ -88,7 +88,7 @@
 	// save NOTHING (the entry then carries only system info: owner/date/size).
 
 	var MD_OCS = '/ocs/v2.php/apps/meta_data/api/v1'
-	var PD_DEFAULT_KEYS = ['creator', 'date', 'type', 'summary']
+	var PD_DEFAULT_KEYS = ['title', 'creator', 'date', 'type', 'summary']
 
 	function mdAvailable() {
 		return !!(window.OC && OC.appswebroots && OC.appswebroots.meta_data)
