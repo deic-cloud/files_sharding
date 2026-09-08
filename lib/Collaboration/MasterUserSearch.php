@@ -122,6 +122,11 @@ class MasterUserSearch implements ISearchPlugin {
 				'label' => $displayName . ' (' . $userId . ')',
 				'uuid'  => $userId,
 				'name'  => $displayName,
+				// With show_federated_shares_to_trusted_servers_as_internal the dialog
+				// takes a remote entry's display name and SUBLINE from extra.name /
+				// extra.email (SharingInput.vue formatForMultiselect). Without this the
+				// entry is a bare name — indistinguishable from a namesake local user.
+				'extra' => ['name' => ['value' => $displayName], 'email' => ['value' => $userId]],
 				'value' => [
 					'shareType'       => IShare::TYPE_REMOTE,
 					'shareWith'       => $shareWith,

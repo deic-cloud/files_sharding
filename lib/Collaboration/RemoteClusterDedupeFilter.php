@@ -143,6 +143,8 @@ class RemoteClusterDedupeFilter implements ISearchPlugin {
 					'label' => $info['name'] . ' (' . $userId . ')',
 					'uuid'  => $userId,
 					'name'  => $info['name'],
+					// Subline = uid in the dialog (see MasterUserSearch for why extra.*).
+					'extra' => ['name' => ['value' => $info['name']], 'email' => ['value' => $userId]],
 					'value' => [
 						'shareType'       => IShare::TYPE_REMOTE,
 						'shareWith'       => $userId . '@' . $masterHost,
