@@ -139,12 +139,17 @@ class RemoteClusterDedupeFilter implements ISearchPlugin {
 			}
 			// Internal box: re-add a single clean canonical @master entry. External: none.
 			if ($internalBox && $masterHost !== '') {
+				// Title carries the uid (see MasterUserSearch for why). The collected
+				// name may already be "Display (uid)" when it came from our own entry.
+				$display = str_contains($info['name'], '(' . $userId . ')')
+					? $info['name']
+					: $info['name'] . ' (' . $userId . ')';
+				$plain = trim(str_replace('(' . $userId . ')', '', $display));
 				$clean = [[
-					'label' => $info['name'] . ' (' . $userId . ')',
+					'label' => $display,
 					'uuid'  => $userId,
-					'name'  => $info['name'],
-					// Subline = uid in the dialog (see MasterUserSearch for why extra.*).
-					'extra' => ['name' => ['value' => $info['name']], 'email' => ['value' => $userId]],
+					'name'  => $display,
+					'extra' => ['name' => ['value' => $plain], 'email' => ['value' => $userId]],
 					'value' => [
 						'shareType'       => IShare::TYPE_REMOTE,
 						'shareWith'       => $userId . '@' . $masterHost,

@@ -119,13 +119,16 @@ class MasterUserSearch implements ISearchPlugin {
 			// still routes correctly — shareWith carries the canonical @master identity
 			// and the OCS API derives the remote from it (server was display-only).
 			$entry = [
+				// The dialog shows `name` (falling back to `label`) as the title and, for
+				// a remote entry under OUR flag (show_federated_shares_TO_TRUSTED_SERVERS_
+				// as_internal), no subline at all — the subline branches need either the
+				// global show_federated_shares_as_internal flag (extra.email) or a
+				// `server` field ("on {host}", which we deliberately omit). So the uid
+				// goes into the title itself: "Display Name (uid)" — otherwise a
+				// cross-silo user is indistinguishable from a namesake local user.
 				'label' => $displayName . ' (' . $userId . ')',
 				'uuid'  => $userId,
-				'name'  => $displayName,
-				// With show_federated_shares_to_trusted_servers_as_internal the dialog
-				// takes a remote entry's display name and SUBLINE from extra.name /
-				// extra.email (SharingInput.vue formatForMultiselect). Without this the
-				// entry is a bare name — indistinguishable from a namesake local user.
+				'name'  => $displayName . ' (' . $userId . ')',
 				'extra' => ['name' => ['value' => $displayName], 'email' => ['value' => $userId]],
 				'value' => [
 					'shareType'       => IShare::TYPE_REMOTE,
