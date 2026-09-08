@@ -63,8 +63,25 @@ class ResidentUserFilter implements ISearchPlugin {
 		}
 
 		$this->clearStaleExactUserFlag($searchResult);
+		self::reindex($searchResult, $type);
 
 		return false;
+	}
+
+	/**
+	 * Core's removeCollaboratorResult() unset()s entries without re-indexing, so
+	 * after a removal the bucket serialises as a JSON OBJECT ({"1": {...}}) instead
+	 * of a list — and the share dialog silently shows nothing from it (the "only
+	 * one hit for fror@dtu.dk" symptom: the local user was in the response, the
+	 * remote entry was the only one the client could read). Re-add as lists.
+	 */
+	public static function reindex(ISearchResult $searchResult, SearchResultType $type): void {
+		$all   = $searchResult->asArray();
+		$label = $type->getLabel();
+		$wide  = array_values($all[$label] ?? []);
+		$exact = array_values($all['exact'][$label] ?? []);
+		$searchResult->unsetResult($type);
+		$searchResult->addResultSet($type, $wide, $exact);
 	}
 
 	/**

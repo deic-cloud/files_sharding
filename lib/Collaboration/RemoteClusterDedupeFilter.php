@@ -167,6 +167,8 @@ class RemoteClusterDedupeFilter implements ISearchPlugin {
 		if ($hasClusterExact) {
 			$this->clearExactUserFlag($searchResult);
 		}
+		// Removals leave key gaps → JSON object instead of list; see ResidentUserFilter::reindex().
+		ResidentUserFilter::reindex($searchResult, $type);
 
 		return false;
 	}

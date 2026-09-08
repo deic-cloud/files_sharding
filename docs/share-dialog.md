@@ -45,6 +45,17 @@ account whose email equals another cluster user's uid must not shadow them).
   with that **uid** (cross-silo) *and* a local account carrying it as **email**.
   Both are shown; the searcher picks.
 
+## Gotcha: buckets must stay JSON lists
+
+Core's `SearchResult::removeCollaboratorResult()` `unset()`s entries without
+re-indexing. After any removal a bucket like `users` serialises as a JSON
+*object* (`{"1": {...}}`) instead of a list, and the Vue share dialog silently
+renders nothing from it — the response *contains* the user but the client can't
+read it. Both plugins therefore re-add the affected buckets via
+`ResidentUserFilter::reindex()` (unset + `addResultSet(array_values(...))`)
+after their removals. When debugging with `curl`, check that `users` /
+`remotes` are `[...]`, not `{...}`.
+
 ## Debugging
 
 Probe the endpoint the boxes call (as any logged-in user):
