@@ -64,21 +64,19 @@ See [`docs/share-dialog.md`](docs/share-dialog.md).
 On the master, use the OCC commands to register each silo and assign users:
 
 ```bash
-# Register a silo
-occ files-sharding:add-server --url https://silo1.example.org \
-    --internal-url http://10.0.0.2 --site "Copenhagen" --total-gb 4000
+# Register a silo (positional URL and numeric id; internal URL for node-to-node calls)
+occ files_sharding:server:add https://silo1.example.org 1 \
+    --internal-url http://10.0.0.2 --site "Copenhagen" --user-regex '@example\.org$'
 
-# Assign a user to a specific silo
-occ files-sharding:assign-user alice 1        # 1 = server ID
+# Assign (or move) a user to a silo; --readonly for a frozen copy, --unassign to home them on the master
+occ files_sharding:user:assign alice 1        # 1 = server id
 
-# Auto-assign a user to the least-loaded silo
-occ files-sharding:auto-assign alice
+# Auto-assign a user (user-regex first, then free space); --force to reassign
+occ files_sharding:user:auto-assign alice
 
-# List registered silos
-occ files-sharding:list-servers
-
-# List user assignments
-occ files-sharding:list-users
+# List registered silos / user assignments
+occ files_sharding:server:list
+occ files_sharding:user:list [--server=1]
 ```
 
 ## Architecture
@@ -98,7 +96,7 @@ When a user with no silo assignment logs in interactively for the first time, `P
 
 The choice is stored in `files_sharding_user_servers`, then `getRedirectUrl()` sends the user there. User IDs are WAYF UIDs (`eduPersonPrincipalName`); for some institutions (e.g. DTU) this is the same as the user's email.
 
-Because auto-assignment fires on the login event, users created **without** an interactive login (bulk/scripted provisioning or migration) are *not* assigned automatically — run `occ files-sharding:auto-assign <uid>` for each, or assign explicitly with `occ files-sharding:assign-user <uid> <serverId>`.
+Because auto-assignment fires on the login event, users created **without** an interactive login (bulk/scripted provisioning or migration) are *not* assigned automatically — run `occ files_sharding:user:auto-assign <uid>` for each, or assign explicitly with `occ files_sharding:user:assign <uid> <serverId>`.
 
 ### Login redirect flow
 
