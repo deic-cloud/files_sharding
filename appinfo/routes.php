@@ -13,6 +13,9 @@ return [
 		['name' => 'login#masterLogin',  'url' => '/master-login', 'verb' => 'GET'],
 		// Master-side logout — "Back to login" link clears session before showing login form
 		['name' => 'login#logout',       'url' => '/logout',       'verb' => 'GET'],
+		// Home-node side of the cluster SSO hop: master-hosted page found no session but
+		// the SsoCookie marker named this node → issue a master token, bounce to master's /login
+		['name' => 'login#ssoIssue',     'url' => '/sso/issue',    'verb' => 'GET'],
 		// Inter-server calls (no NC session; gated by shared secret)
 		['name' => 'internal#validateToken', 'url' => '/internal/token/validate',     'verb' => 'POST'],
 		['name' => 'internal#issueToken',    'url' => '/internal/token',             'verb' => 'POST'],

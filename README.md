@@ -107,6 +107,35 @@ Because auto-assignment fires on the login event, users created **without** an i
 3. Master issues a short-lived token and redirects the browser to `https://silo/index.php/apps/files_sharding/login?token=…`.
 4. The silo validates the token with the master (`/internal/token/validate`) and creates a local NC session.
 
+### Cluster SSO hop (silo-homed user on a master-hosted page)
+
+NC sessions are per node. A silo-homed user who opens a page served by the
+**master** — typically a website (`files_picocms`) owned by a master-homed
+account — has no master session, so the page would treat them as anonymous even
+when its folder is shared with them. The old service copied sessions between
+nodes; here the equivalent is a marker plus a token round-trip:
+
+1. **Marker.** On login at the user's *home* node (`PostLoginListener`, or the
+   silo `exchange()` that completes a master-redirected login) `SsoCookie` sets
+   `files_sharding_home=<home node URL>` on the cluster's shared parent domain
+   (`files_sharding_sso_cookie_domain`, else the master host minus its first
+   label, e.g. `.example.org`). It names a node, never a user. Cleared on logout.
+2. **Hop.** A master-served page that finds no session but sees the marker naming
+   another node redirects the browser to
+   `<home>/index.php/apps/files_sharding/sso/issue?target=<master>&return=<path>`.
+3. **Issue.** `ssoIssue` (home node, session-authenticated) asks the master for a
+   one-time token (`/internal/token`) and bounces to
+   `<master>/index.php/apps/files_sharding/login?token=…&user=…&return=…`.
+4. **Exchange.** The master's `exchange()` validates the token locally and opens a
+   session for the user's **directory account** (every cluster user has one on
+   the master — nothing is created), then redirects to `return`.
+
+A stale marker (no session at the home node either) makes `ssoIssue` send the
+browser straight back and the page renders anonymously; the caller must guard
+against repeating the hop (`files_picocms` uses a 60 s host-only cookie). The
+target is restricted to the master: silo-to-silo hops would have to create
+accounts on the visited silo and are not offered.
+
 ### WebDAV
 
 The desktop sync client and WebDAV clients need the **silo URL**, not the master URL. Nextcloud's own WebDAV client follows the `X-NC-SiloURL` header set on redirect; generic WebDAV clients must be pointed at the silo directly.

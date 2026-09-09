@@ -6,6 +6,7 @@ namespace OCA\FilesSharding\Listener;
 
 use OCA\FilesSharding\Service\RedirectState;
 use OCA\FilesSharding\Service\ShardingService;
+use OCA\FilesSharding\Service\SsoCookie;
 use OCA\FilesSharding\Service\TokenService;
 use OCP\EventDispatcher\Event;
 use OCP\EventDispatcher\IEventListener;
@@ -22,6 +23,7 @@ class PostLoginListener implements IEventListener {
 		private RedirectState   $redirectState,
 		private IRequest        $request,
 		private LoggerInterface $logger,
+		private SsoCookie       $ssoCookie,
 	) {
 	}
 
@@ -29,12 +31,22 @@ class PostLoginListener implements IEventListener {
 		if (!($event instanceof UserLoggedInEvent) && !($event instanceof UserLoggedInWithCookieEvent)) {
 			return;
 		}
+		$userId = $event->getUser()->getUID();
+
+		// Any node: a login on the user's HOME node publishes the cluster SSO
+		// marker (SsoCookie) so master-hosted websites can hop here for a token.
+		// On a silo the map is silent → getRedirectUrl() is null → home. On the
+		// master it is null only for master-homed users; a silo-homed user's
+		// master login is a transit (redirected below) and leaves the marker to
+		// the silo's exchange().
+		if ($this->shardingService->getRedirectUrl($userId) === null) {
+			$this->ssoCookie->markHome();
+		}
+
 		if (!$this->shardingService->isMaster()) {
 			$this->logger->debug('files_sharding: PostLoginListener: not master, skipping redirect');
 			return;
 		}
-
-		$userId = $event->getUser()->getUID();
 
 		// On a fresh interactive login, auto-assign the user to a silo if they
 		// have no assignment yet.  Cookie-based re-logins skip this so that an

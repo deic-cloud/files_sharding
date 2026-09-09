@@ -6,6 +6,7 @@ namespace OCA\FilesSharding\Controller;
 
 use OCA\FilesSharding\Service\InterServerClient;
 use OCA\FilesSharding\Service\ShardingService;
+use OCA\FilesSharding\Service\SsoCookie;
 use OCA\FilesSharding\Service\TokenService;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http\RedirectResponse;
@@ -37,6 +38,7 @@ class LoginController extends Controller {
 		private IConfig           $config,
 		private ICrypto           $crypto,
 		private LoggerInterface   $logger,
+		private SsoCookie         $ssoCookie,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -145,6 +147,7 @@ class LoginController extends Controller {
 		if ($this->userSession->isLoggedIn()) {
 			$this->userSession->logout();
 		}
+		$this->ssoCookie->clear();
 		// Post-logout landing. '/' is fine on a plain install, but when a SAML
 		// backend with multiple user backends is enabled, an anonymous '/' walks
 		// into the backend-select page — so a deployment can point logouts at a
@@ -167,14 +170,27 @@ class LoginController extends Controller {
 			return new TemplateResponse('files_sharding', 'login_error', ['message' => 'Missing token or user', 'login_url' => $masterLogoutUrl], 'guest');
 		}
 
-		$masterUrl = $this->shardingService->masterInternalUrl();
-		if ($masterUrl === '') {
-			$this->logger->error('files_sharding: master URL is not configured on this silo');
-			return new TemplateResponse('files_sharding', 'login_error', ['message' => 'Silo not configured', 'login_url' => $masterLogoutUrl], 'guest');
+		if ($this->shardingService->isMaster()) {
+			// The master is a valid exchange target too (cluster SSO hop: a
+			// silo-homed user landing on a master-hosted website — see ssoIssue).
+			// Validate locally instead of HTTP-ing to ourselves.
+			$uid  = $this->tokenService->consume($token);
+			$u    = $uid !== null ? $this->userManager->get($uid) : null;
+			$data = $u === null ? null : [
+				'user_id'      => $u->getUID(),
+				'display_name' => $u->getDisplayName(),
+				'email'        => $u->getEMailAddress() ?? '',
+				'quota'        => $u->getQuota(),
+			];
+		} else {
+			$masterUrl = $this->shardingService->masterInternalUrl();
+			if ($masterUrl === '') {
+				$this->logger->error('files_sharding: master URL is not configured on this silo');
+				return new TemplateResponse('files_sharding', 'login_error', ['message' => 'Silo not configured', 'login_url' => $masterLogoutUrl], 'guest');
+			}
+			$this->logger->warning("files_sharding: validating token for user={$user} via {$masterUrl}");
+			$data = $this->client->postDirect($masterUrl, 'internal/token/validate', ['token' => $token]);
 		}
-
-		$this->logger->warning("files_sharding: validating token for user={$user} via {$masterUrl}");
-		$data = $this->client->postDirect($masterUrl, 'internal/token/validate', ['token' => $token]);
 		if ($data === null || empty($data['user_id'])) {
 			$this->logger->warning("files_sharding: token validation failed for user={$user}, data=" . json_encode($data));
 			return new TemplateResponse('files_sharding', 'login_error', ['message' => 'Invalid or expired login token', 'login_url' => $masterLogoutUrl], 'guest');
@@ -238,12 +254,73 @@ class LoginController extends Controller {
 		$this->session->remove('fsh_sudo_token_at');
 		$this->session->remove('fsh_sudo_user');
 
+		// Home node (the map says the user belongs here — on silos the map is
+		// silent, which also means "here"): publish the cluster SSO marker. A hop
+		// session on the master for a silo-homed user must NOT overwrite it.
+		if ($this->shardingService->getRedirectUrl($userId) === null) {
+			$this->ssoCookie->markHome();
+		}
+
 		// Redirect to the original deep link if one was threaded through from the master.
 		// Only relative URLs starting with / are accepted to prevent open redirects.
 		if ($return !== '' && str_starts_with($return, '/') && !str_starts_with($return, '//')) {
 			return new RedirectResponse($return);
 		}
 		return new RedirectResponse($this->urlGenerator->linkToDefaultPageUrl());
+	}
+
+	// ── Cluster SSO hop (home node → master) ─────────────────────────────────
+
+	/**
+	 * Home node: the browser was sent here by a MASTER-hosted page that found no
+	 * session but saw our cluster marker cookie (SsoCookie) pointing at this node.
+	 * If the user is logged in here, obtain a one-time master token and bounce
+	 * the browser to the master's exchange() so it gets a master session for the
+	 * user's directory account, then lands back on $return. If there is no
+	 * session here either (stale marker), just send the browser back — the page
+	 * renders anonymously, exactly as before the hop; the caller guards against
+	 * repeating the hop (short-lived cookie), so this can never loop.
+	 *
+	 * $target must be the master: the master holds a directory account for every
+	 * cluster user, so exchange() there never has to create one. Silo-to-silo
+	 * hops are deliberately not offered (they would create stray accounts).
+	 *
+	 * @NoCSRFRequired
+	 * @PublicPage
+	 */
+	public function ssoIssue(string $target = '', string $return = ''): RedirectResponse|TemplateResponse {
+		$master = $this->shardingService->masterUrl();
+		$target = rtrim($target, '/');
+		if ($master === '' || $target === '' || $target !== $master) {
+			return new TemplateResponse('files_sharding', 'login_error',
+				['message' => 'Unknown SSO target', 'login_url' => ''], 'guest');
+		}
+		$safeReturn = ($return !== '' && str_starts_with($return, '/') && !str_starts_with($return, '//')) ? $return : '/';
+		$back = $target . $safeReturn;
+
+		if (!$this->userSession->isLoggedIn()) {
+			// Stale marker — not logged in here either. Anonymous it is.
+			$this->ssoCookie->clear();
+			return new RedirectResponse($back);
+		}
+		$userId = $this->userSession->getUser()->getUID();
+
+		if ($this->shardingService->isMaster()) {
+			// Marker pointed at the master while the master had no session: the
+			// master session simply expired. Nothing to hop; land anonymously.
+			return new RedirectResponse($back);
+		}
+		$data  = $this->client->postDirect($this->shardingService->masterInternalUrl(), 'internal/token', ['userId' => $userId]);
+		$token = (string)($data['token'] ?? '');
+		if ($token === '') {
+			$this->logger->warning("files_sharding: ssoIssue: master issued no token for {$userId}");
+			return new RedirectResponse($back);
+		}
+		$url = $target . '/index.php/apps/files_sharding/login'
+			. '?token='  . urlencode($token)
+			. '&user='   . urlencode($userId)
+			. '&return=' . urlencode($safeReturn);
+		return new RedirectResponse($url);
 	}
 
 	// ── Master-login sudo confirmation ────────────────────────────────────────

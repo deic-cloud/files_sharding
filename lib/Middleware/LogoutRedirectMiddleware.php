@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OCA\FilesSharding\Middleware;
 
 use OCA\FilesSharding\Service\ShardingService;
+use OCA\FilesSharding\Service\SsoCookie;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http\RedirectResponse;
 use OCP\AppFramework\Http\Response;
@@ -35,6 +36,7 @@ class LogoutRedirectMiddleware extends Middleware {
 		private ShardingService $shardingService,
 		private IConfig         $config,
 		private IRequest        $request,
+		private SsoCookie       $ssoCookie,
 	) {
 	}
 
@@ -44,6 +46,7 @@ class LogoutRedirectMiddleware extends Middleware {
 		}
 
 		$this->clearSessionCookies();
+		$this->ssoCookie->clear();
 
 		if ($this->shardingService->isMaster()) {
 			// Core redirects to its own login — fine on a plain install, but with
