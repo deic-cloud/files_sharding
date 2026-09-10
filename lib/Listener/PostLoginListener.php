@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace OCA\FilesSharding\Listener;
 
+use OCA\FilesSharding\Service\LoginTokenPruner;
 use OCA\FilesSharding\Service\RedirectState;
 use OCA\FilesSharding\Service\ShardingService;
 use OCA\FilesSharding\Service\SsoCookie;
@@ -24,6 +25,7 @@ class PostLoginListener implements IEventListener {
 		private IRequest        $request,
 		private LoggerInterface $logger,
 		private SsoCookie       $ssoCookie,
+		private LoginTokenPruner $tokenPruner,
 	) {
 	}
 
@@ -32,6 +34,9 @@ class PostLoginListener implements IEventListener {
 			return;
 		}
 		$userId = $event->getUser()->getUID();
+
+		// Any node: drop this user's expired remember-me tokens (core never does).
+		$this->tokenPruner->prune($userId);
 
 		// Any node: a login on the user's HOME node publishes the cluster SSO
 		// marker (SsoCookie) so master-hosted websites can hop here for a token.
