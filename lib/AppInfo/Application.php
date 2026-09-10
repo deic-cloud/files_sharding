@@ -99,6 +99,7 @@ class Application extends App implements IBootstrap {
 		$context->registerMiddleware(SudoPasswordMiddleware::class, true);
 		$context->registerMiddleware(AdminIpMiddleware::class, true);
 		$context->registerEventListener(BeforeTemplateRenderedEvent::class, SudoScriptListener::class);
+		$context->registerEventListener(BeforeTemplateRenderedEvent::class, \OCA\FilesSharding\Listener\HidePasswordChangeListener::class);
 		$context->registerEventListener(BeforeLoginTemplateRenderedEvent::class, SudoScriptListener::class);
 	}
 

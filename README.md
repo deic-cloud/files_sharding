@@ -46,6 +46,7 @@ Then configure each node and register the silo URLs with the master.
 | `files_sharding_master_internal_url` | Silos (optional) | Internal URL for silo→master calls. Falls back to `files_sharding_master_url`. |
 | `files_sharding_logout_url` | Master (optional) | Where the browser lands after logout (e.g. a public welcome page). Default: `/` — note that with user_saml + multiple user backends, an anonymous `/` shows the backend-select page. |
 | `files_sharding_sso_cookie_domain` | All nodes (optional) | Parent domain for the cluster SSO marker cookie (see *Cluster SSO hop*). Default: the master host minus its first label (`lab.example.org` → `.example.org`); a two-label master host disables the marker. |
+| `files_sharding_hide_password_change` | All nodes (optional) | `true` hides Settings → Security → Password for every user (CSS, no core change): one story for master- and silo-homed accounts — institutional/ORCID login on the web, device/app passwords (which also work on the web login form) for everything else. |
 | `files_sharding_hidden_users` | All nodes (optional) | List of uids hidden from people-search (share dialog and group member-add). Meant for service accounts. Example: `['cloud','batch']`. |
 
 ### Required appconfig (stock Nextcloud settings the cluster depends on)
