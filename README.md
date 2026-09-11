@@ -148,6 +148,13 @@ string it is given). The token appears in *Devices & sessions* like any other
 and works for WebDAV/OCS clients, scripts and *Direct login*. Left empty, the
 stock generated-password flow runs untouched. Not config-gated.
 
+Hard limit from core: a device password must be **at least 22 characters**
+(`PublicKeyTokenProvider::TOKEN_MIN_LENGTH`). Core never looks shorter strings
+up in the token table — it takes them for account passwords — so a shorter one
+could be created but never used; the endpoint and the field both refuse them.
+The endpoint also works without a browser session (HTTP basic auth):
+`curl -u user:pass -H 'OCS-APIREQUEST: true' -d name=laptop -d password=… …/device-password`.
+
 ### WebDAV
 
 The desktop sync client and WebDAV clients need the **silo URL**, not the master URL. Nextcloud's own WebDAV client follows the `X-NC-SiloURL` header set on redirect; generic WebDAV clients must be pointed at the silo directly.

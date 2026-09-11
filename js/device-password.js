@@ -12,6 +12,9 @@
 
 	var FORM = '#generate-app-token-section';
 	var FIELD_ID = 'fsh-device-password';
+	// Nextcloud only recognises tokens of >= 22 characters (shorter strings are
+	// taken for account passwords) — same limit as the server-side check.
+	var MIN_LENGTH = 22;
 	var busy = false;
 
 	function ocsUrl() {
@@ -40,11 +43,12 @@
 		input.id = FIELD_ID;
 		input.autocomplete = 'new-password';
 		input.placeholder = t('files_sharding', 'Password (optional)');
-		input.title = t('files_sharding', 'Choose the password yourself — leave empty to have one generated');
+		input.title = t('files_sharding', 'Choose the password yourself (at least {n} characters) — leave empty to have one generated', { n: MIN_LENGTH });
+		input.minLength = MIN_LENGTH;
 		input.style.cssText = 'height:44px;min-width:230px;';
 		var hint = document.createElement('small');
 		hint.style.cssText = 'color:var(--color-text-maxcontrast);margin-top:2px;';
-		hint.textContent = t('files_sharding', 'Leave empty to have a password generated');
+		hint.textContent = t('files_sharding', 'Leave empty to have one generated; at least {n} characters', { n: MIN_LENGTH });
 		wrap.append(input, hint);
 		button.parentNode.insertBefore(wrap, button);
 	}
@@ -62,6 +66,10 @@
 		var name = nameField ? nameField.value.trim() : '';
 		if (name === '') {
 			toast(t('files_sharding', 'Please give the device password a name'), true);
+			return;
+		}
+		if (input.value.length < MIN_LENGTH) {
+			toast(t('files_sharding', 'A device password must be at least {n} characters long', { n: MIN_LENGTH }), true);
 			return;
 		}
 		busy = true;

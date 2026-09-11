@@ -7,6 +7,7 @@ namespace OCA\FilesSharding\Controller;
 use OC\Authentication\Exceptions\InvalidTokenException;
 use OC\Authentication\Exceptions\PasswordlessTokenException;
 use OC\Authentication\Token\IProvider;
+use OC\Authentication\Token\PublicKeyTokenProvider;
 use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\Attribute\UserRateLimit;
@@ -74,6 +75,16 @@ class DevicePasswordController extends OCSController {
 			$this->dispatcher->dispatchTyped(new ValidatePasswordPolicyEvent($password, PasswordContext::ACCOUNT));
 		} catch (HintException $e) {
 			return new DataResponse(['message' => $e->getHint() ?: $e->getMessage()], Http::STATUS_BAD_REQUEST);
+		}
+		// Core's token store only looks up strings of at least
+		// PublicKeyTokenProvider::TOKEN_MIN_LENGTH (22) characters — anything
+		// shorter is taken for an account password and never matched against
+		// tokens — so a shorter device password could be created but never used.
+		if (strlen($password) < PublicKeyTokenProvider::TOKEN_MIN_LENGTH) {
+			return new DataResponse(
+				['message' => $this->l->t('A device password must be at least %d characters long', [PublicKeyTokenProvider::TOKEN_MIN_LENGTH])],
+				Http::STATUS_BAD_REQUEST,
+			);
 		}
 		// It must be usable as a device password: never the account's own login
 		// name, and the token store needs it to look nothing like a session id.
