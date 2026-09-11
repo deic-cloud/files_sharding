@@ -12,7 +12,9 @@ use OCP\IRequest;
 use OCP\Util;
 
 /**
- * Hide "Settings → Security → Password" for everyone — CONFIG-GATED, no core change.
+ * Settings → Security tweaks, no core change: (1) always inject the optional
+ * "Password" field into "Create new app password"; (2) CONFIG-GATED: hide the
+ * account password form.
  *
  * In a cluster with institutional (SAML) login, accounts on the master are
  * user_saml-backend and have no password form; accounts on silos are Database
@@ -37,10 +39,14 @@ class HidePasswordChangeListener implements IEventListener {
 		if (!($event instanceof BeforeTemplateRenderedEvent) || !$event->isLoggedIn()) {
 			return;
 		}
-		if (!$this->config->getSystemValueBool('files_sharding_hide_password_change', false)) {
+		if (!str_contains($this->request->getPathInfo() ?: '', '/settings/user')) {
 			return;
 		}
-		if (!str_contains($this->request->getPathInfo() ?: '', '/settings/user')) {
+		// Always: the optional "Password" field on "Create new app password"
+		// (js/device-password.js → DevicePasswordController). Not config-gated —
+		// choosing one's own device password is useful with or without SAML.
+		Util::addScript('files_sharding', 'device-password');
+		if (!$this->config->getSystemValueBool('files_sharding_hide_password_change', false)) {
 			return;
 		}
 		Util::addStyle('files_sharding', 'hide-password-change');

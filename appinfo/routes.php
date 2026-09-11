@@ -81,6 +81,8 @@ return [
 		['name' => 'api#addX509Dn',    'url' => '/api/v1/x509',           'verb' => 'POST'],
 		// Certificate generation — specific paths before the {index} wildcard
 		['name' => 'api#generateCert', 'url' => '/api/v1/x509/generate',  'verb' => 'POST'],
+		// Device password of the user's own choosing (field injected into Settings → Security)
+		['name' => 'devicePassword#create', 'url' => '/api/v1/device-password', 'verb' => 'POST'],
 		['name' => 'api#getCertInfo',  'url' => '/api/v1/x509/certinfo',  'verb' => 'GET'],
 		['name' => 'api#deleteCertKey','url' => '/api/v1/x509/certkey',   'verb' => 'DELETE'],
 		['name' => 'api#deleteX509Dn', 'url' => '/api/v1/x509/{index}',   'verb' => 'DELETE'],

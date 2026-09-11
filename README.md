@@ -136,6 +136,18 @@ against repeating the hop (`files_picocms` uses a 60 s host-only cookie). The
 target is restricted to the master: silo-to-silo hops would have to create
 accounts on the visited silo and are not offered.
 
+### Device passwords of your own choosing
+
+Nextcloud's *Create new app password* only generates random passwords. On
+personal-settings pages this app adds an optional **Password** field to that
+form (`js/device-password.js`); when filled, the submit goes to
+`POST /ocs/v2.php/apps/files_sharding/api/v1/device-password` instead, which
+runs the value through the password-policy app and creates a permanent app
+token from it (`IProvider::generateToken()` — the token store hashes whatever
+string it is given). The token appears in *Devices & sessions* like any other
+and works for WebDAV/OCS clients, scripts and *Direct login*. Left empty, the
+stock generated-password flow runs untouched. Not config-gated.
+
 ### WebDAV
 
 The desktop sync client and WebDAV clients need the **silo URL**, not the master URL. Nextcloud's own WebDAV client follows the `X-NC-SiloURL` header set on redirect; generic WebDAV clients must be pointed at the silo directly.
