@@ -152,7 +152,9 @@ class Application extends App implements IBootstrap {
 			// directly by rewrite or via their /remote.php service names). Without
 			// them a sync client on the pretty URL would see received shares that
 			// the canonical endpoints conceal.
-			if (!preg_match('#^/(remote\.php/(webdav|dav|sddav|files|grid)|files|grid)(/|$)#', $uri)) {
+			// legacydav.php presents its URI prefixed with its own script path while the
+			// stack boots (see there) — accept that spelling too.
+			if (!preg_match('#^(/apps/files_sharding/appinfo/legacydav\.php)?/(remote\.php/(webdav|dav|sddav|files|grid)|files|grid)(/|$)#', $uri)) {
 				return;
 			}
 			if ($request->getHeader('Authorization') === '') {

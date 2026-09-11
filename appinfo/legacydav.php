@@ -54,6 +54,17 @@ use Psr\Log\LoggerInterface;
 // We replicate what NC's remote.php does before including a DAV handler: bootstrap
 // the stack and load the auth/filesystem/logging app groups (X.509 login runs in
 // base.php's request handling; Basic auth is done by the Sabre Auth plugin below).
+// Core's Request::getRawPathInfo() insists that REQUEST_URI start with the
+// script's directory. The rewrite preserves the pretty /files|/grid URI (on
+// purpose — Sabre's baseUri below is built from it), so every app boot that asks
+// for the path info — user_saml does — threw and logged "Error when loading
+// user_saml app" on EVERY request here (~1000 entries/week). Present the URI the
+// way the script name implies while the stack boots; Sabre gets the original.
+// The conceal gate in Application.php accepts both spellings.
+$legacyOrigUri = $_SERVER['REQUEST_URI'] ?? '';
+if (($_SERVER['SCRIPT_NAME'] ?? '') !== '' && !str_starts_with($legacyOrigUri, $_SERVER['SCRIPT_NAME'])) {
+	$_SERVER['REQUEST_URI'] = $_SERVER['SCRIPT_NAME'] . $legacyOrigUri;
+}
 if (!defined('OC_VERSION')) {
 	require_once __DIR__ . '/../../../lib/base.php';
 	header("Content-Security-Policy: default-src 'none';");
@@ -68,6 +79,7 @@ if (!defined('OC_VERSION')) {
 	$appManager->loadApps(['filesystem', 'logging']);
 	$appManager->loadApp('files_sharding');
 }
+$_SERVER['REQUEST_URI'] = $legacyOrigUri;
 
 // no php execution timeout for webdav
 if (!str_contains(@ini_get('disable_functions'), 'set_time_limit')) {
