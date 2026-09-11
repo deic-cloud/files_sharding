@@ -81,17 +81,23 @@ class DevicePasswordController extends OCSController {
 			return new DataResponse(['message' => $this->l->t('The password must differ from your username')], Http::STATUS_BAD_REQUEST);
 		}
 
+		// Browser session: copy login name + account password from the session
+		// token like core does (the password lets NC re-validate the token against
+		// password backends). No session token (e.g. an HTTP-basic-auth call): a
+		// password-less token for the uid — what SAML accounts get anyway.
+		$loginName       = $user->getUID();
+		$accountPassword = null;
 		try {
 			$sessionId    = $this->session->getId();
 			$sessionToken = $this->tokenProvider->getToken($sessionId);
-			$loginName    = $sessionToken->getLoginName();
+			$loginName    = $sessionToken->getLoginName() ?: $loginName;
 			try {
 				$accountPassword = $this->tokenProvider->getPassword($sessionToken, $sessionId);
 			} catch (PasswordlessTokenException) {
 				$accountPassword = null;
 			}
 		} catch (SessionNotAvailableException | InvalidTokenException) {
-			return new DataResponse(['message' => $this->l->t('Not available')], Http::STATUS_SERVICE_UNAVAILABLE);
+			// keep the fallbacks above
 		}
 
 		if (mb_strlen($name) > 120) {
