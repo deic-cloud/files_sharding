@@ -134,7 +134,10 @@ $bearerAuthPlugin = new BearerAuth(
 );
 $authPlugin->addBackend($bearerAuthPlugin);
 
-$requestUri = Server::get(IRequest::class)->getRequestUri();
+// The pretty URI, not IRequest's (which carries the script prefix from the boot
+// phase above): Sabre must see a URL inside its /files|/grid base and answer with
+// pretty hrefs.
+$requestUri = $legacyOrigUri !== '' ? $legacyOrigUri : Server::get(IRequest::class)->getRequestUri();
 
 /** @var string $baseuri */
 $server = $serverFactory->createServer(false, $baseuri, $requestUri, $authPlugin, function () {
