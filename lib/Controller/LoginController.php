@@ -217,7 +217,10 @@ class LoginController extends Controller {
 			if ($encryptedPw !== '') {
 				try {
 					$sessionPassword = $this->crypto->decrypt($encryptedPw);
-				} catch (\Exception $e) {
+				} catch (\Throwable $e) {
+					// Also \ValueError: core's decrypt() retries a failed HMAC with an
+					// EMPTY secret and hash_hkdf('') throws — happens for rows encrypted
+					// under a previous 'secret' (e.g. after unifying the cluster secret).
 					// Decryption failure (e.g. instance secret rotated): discard.
 					$this->config->deleteUserValue($userId, 'files_sharding', 'session_pw');
 				}
@@ -470,7 +473,7 @@ class LoginController extends Controller {
 			if ($encryptedPw !== '') {
 				try {
 					$this->session->set('fsh_session_password', $this->crypto->decrypt($encryptedPw));
-				} catch (\Exception) {
+				} catch (\Throwable) { // incl. \ValueError from core's empty-secret retry
 					$this->config->deleteUserValue($userId, 'files_sharding', 'session_pw');
 				}
 			}
