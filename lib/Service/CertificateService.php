@@ -221,17 +221,22 @@ class CertificateService {
 	private function signCsr(mixed $csr, mixed $privKey, int $days): mixed {
 		$caCertPath = $this->config->getSystemValueString('my_ca_certificate', '');
 		$caKeyPath  = $this->config->getSystemValueString('my_ca_privatekey', '');
+		// A unique serial per certificate. openssl_csr_sign() defaults to 0, so
+		// every certificate this CA issued shared issuer+serial "00" — and CMS
+		// signatures (PDF signing) identify the signer by exactly that pair, so
+		// a verifier handed two such certificates can match the wrong one.
+		$serial = random_int(1, PHP_INT_MAX);
 
 		if ($caCertPath !== '' && $caKeyPath !== '' && file_exists($caCertPath) && file_exists($caKeyPath)) {
 			$caCert = openssl_x509_read((string)file_get_contents($caCertPath));
 			$caKey  = openssl_pkey_get_private((string)file_get_contents($caKeyPath));
 			if ($caCert !== false && $caKey !== false) {
-				return openssl_csr_sign($csr, $caCert, $caKey, $days, ['digest_alg' => 'sha256']);
+				return openssl_csr_sign($csr, $caCert, $caKey, $days, ['digest_alg' => 'sha256'], $serial);
 			}
 			$this->logger->warning('files_sharding: CertificateService: could not read CA cert/key, falling back to self-signed');
 		}
 
 		// Self-sign
-		return openssl_csr_sign($csr, null, $privKey, $days, ['digest_alg' => 'sha256']);
+		return openssl_csr_sign($csr, null, $privKey, $days, ['digest_alg' => 'sha256'], $serial);
 	}
 }
