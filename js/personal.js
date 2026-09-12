@@ -139,9 +139,9 @@ function renderCertInfo(info) {
       <dt>Expires</dt><dd>${e(info.expires)}</dd>
     </dl>
     <div class="fsh-cert-downloads">
-      <a href="${certBase}/x509/cert" download="usercert.pem">Download certificate (PEM)</a>
-      <a href="${certBase}/x509/key"  download="userkey.pem">Download private key (PEM)</a>
-      <a href="${certBase}/x509/pkcs12" download="usercert.p12">Download PKCS#12</a>
+      <a class="button" href="${certBase}/x509/cert" download="usercert.pem">Download certificate (PEM)</a>
+      <a class="button" href="${certBase}/x509/key"  download="userkey.pem">Download private key (PEM)</a>
+      <a class="button" href="${certBase}/x509/pkcs12" download="usercert.p12">Download PKCS#12</a>
     </div>`;
   del.style.display = '';
 }
