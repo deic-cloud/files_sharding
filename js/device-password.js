@@ -43,6 +43,9 @@
 		// width and the 12px gap towards the button.
 		var wrap = stock.cloneNode(true);
 		wrap.classList.add('fsh-device-password');
+		// The stock class also indents the box 12px from the left; on the second
+		// field that would double the gap (12px margin + 12px padding).
+		wrap.style.paddingInlineStart = '0';
 		var input = wrap.querySelector('input');
 		var label = wrap.querySelector('label');
 		var labelText = t('files_sharding', 'Password (optional)');
