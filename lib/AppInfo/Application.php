@@ -67,6 +67,7 @@ class Application extends App implements IBootstrap {
 		$context->registerEventListener(UserChangedEvent::class, UserChangedListener::class);
 		$context->registerEventListener(PasswordUpdatedEvent::class, PasswordChangedListener::class);
 		$context->registerEventListener(SabrePluginAddEvent::class, SabrePluginListener::class);
+		$context->registerEventListener(\OCP\Files\Events\BeforeFileSystemSetupEvent::class, \OCA\FilesSharding\Listener\ConcealGrantsWrapperListener::class);
 		$context->registerEventListener(FederatedShareAddedEvent::class, ProxyShareAcceptanceListener::class);
 		// Warm the just-accepted external share's storage cache so RemoteController
 		// returns real permissions on the next fetch instead of null (stock NC bug
@@ -170,16 +171,9 @@ class Application extends App implements IBootstrap {
 					);
 			}
 
-			// Hide the grant-folder root inside home storages.
-			\OC\Files\Filesystem::addStorageWrapper(
-				'files_sharding_conceal_grants',
-				static function (string $mountPoint, \OCP\Files\Storage\IStorage $storage) {
-					if ($storage->instanceOfStorage(\OCP\Files\IHomeStorage::class)) {
-						return new ConcealedGrantStorage(['storage' => $storage]);
-					}
-					return $storage;
-				},
-			);
+			// The grant-folder root inside home storages is hidden by a storage
+			// wrapper — added by ConcealGrantsWrapperListener during filesystem
+			// setup (the only time core accepts wrappers without a warning).
 		} catch (\Throwable $e) {
 			// Concealment is a hardening layer — never break DAV over it.
 			$server->get(\Psr\Log\LoggerInterface::class)
