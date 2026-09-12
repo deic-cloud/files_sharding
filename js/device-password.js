@@ -39,10 +39,10 @@
 		// same look (its scoped-CSS data-v-* attributes travel with the clone),
 		// including the label shown inside the border once something is typed.
 		var stock = nameField.closest('.input-field') || nameField.parentNode;
+		// Keep the stock class too: its scoped rules set the 44px height, 200px
+		// width and the 12px gap towards the button.
 		var wrap = stock.cloneNode(true);
-		wrap.classList.remove('app-name-text-field');
 		wrap.classList.add('fsh-device-password');
-		wrap.style.marginInlineStart = '8px';
 		var input = wrap.querySelector('input');
 		var label = wrap.querySelector('label');
 		var labelText = t('files_sharding', 'Password (optional)');
