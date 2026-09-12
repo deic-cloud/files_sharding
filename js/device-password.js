@@ -12,9 +12,11 @@
 
 	var FORM = '#generate-app-token-section';
 	var FIELD_ID = 'fsh-device-password';
-	// Nextcloud only recognises tokens of >= 22 characters (shorter strings are
-	// taken for account passwords) — same limit as the server-side check.
-	var MIN_LENGTH = 22;
+	// Mirrors core's PublicKeyTokenProvider::TOKEN_MIN_LENGTH (shorter strings
+	// are never looked up as tokens). Stock is 22; the ScienceData image patches
+	// it to 8 (mfsbsd patch_authtoken_min_length.pl). The server check is
+	// authoritative; this only gives an early message.
+	var MIN_LENGTH = 8;
 	var busy = false;
 
 	function ocsUrl() {

@@ -148,10 +148,15 @@ string it is given). The token appears in *Devices & sessions* like any other
 and works for WebDAV/OCS clients, scripts and *Direct login*. Left empty, the
 stock generated-password flow runs untouched. Not config-gated.
 
-Hard limit from core: a device password must be **at least 22 characters**
-(`PublicKeyTokenProvider::TOKEN_MIN_LENGTH`). Core never looks shorter strings
-up in the token table — it takes them for account passwords — so a shorter one
-could be created but never used; the endpoint and the field both refuse them.
+Hard limit from core: a device password must be at least
+`PublicKeyTokenProvider::TOKEN_MIN_LENGTH` characters — **22 in stock
+Nextcloud**. Core never looks shorter strings up in the token table — it takes
+them for account passwords — so a shorter one could be created but never used;
+the endpoint refuses them with a message (it reads the constant). The
+ScienceData image lowers the constant to **8** with a one-line core patch
+(mfsbsd `patch_authtoken_min_length.pl`); `js/device-password.js` assumes 8
+for its early client-side message, so on a stock core the server message wins.
+The password-policy app's rules apply in either case.
 The endpoint also works without a browser session (HTTP basic auth):
 `curl -u user:pass -H 'OCS-APIREQUEST: true' -d name=laptop -d password=… …/device-password`.
 
