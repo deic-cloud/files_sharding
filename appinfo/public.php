@@ -103,6 +103,25 @@ if ($share->getPassword() !== null && $share->getPassword() !== '') {
 	}
 }
 
+// "Require login" links (LinkPolicy): an account holder's Basic credentials
+// (username + device password) identify the caller; a browser session or a
+// cluster-hop visitor identity counts too. Access is logged with the username.
+$linkPolicy = \OC::$server->get(\OCA\FilesSharding\Service\LinkPolicy::class);
+if ($linkPolicy->requiresLogin($share) && $linkPolicy->identity() === '') {
+	$userSession = \OC::$server->get(\OCP\IUserSession::class);
+	if (method_exists($userSession, 'tryBasicAuthLogin')) {
+		try {
+			$userSession->tryBasicAuthLogin(\OC::$server->get(\OCP\IRequest::class), \OC::$server->get(\OCP\Security\Bruteforce\IThrottler::class));
+		} catch (\Throwable) {
+		}
+	}
+	if ($linkPolicy->identity() === '') {
+		header('WWW-Authenticate: Basic realm="This link requires login"');
+		http_response_code(401);
+		exit;
+	}
+}
+
 try {
 	$node = $share->getNode();
 } catch (\Throwable) {

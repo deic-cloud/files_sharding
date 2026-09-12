@@ -16,6 +16,9 @@ return [
 		// Home-node side of the cluster SSO hop: master-hosted page found no session but
 		// the SsoCookie marker named this node → issue a master token, bounce to master's /login
 		['name' => 'login#ssoIssue',     'url' => '/sso/issue',    'verb' => 'GET'],
+		// Target-node side of the hop for a "require login" public link: validates the
+		// token and records the person as a link VISITOR in the session (no account here)
+		['name' => 'login#ssoVisit',     'url' => '/sso/visit',    'verb' => 'GET'],
 		// Inter-server calls (no NC session; gated by shared secret)
 		['name' => 'internal#validateToken', 'url' => '/internal/token/validate',     'verb' => 'POST'],
 		['name' => 'internal#issueToken',    'url' => '/internal/token',             'verb' => 'POST'],
@@ -49,6 +52,7 @@ return [
 		// Servers
 		// Rename a public link's token to a user-chosen name (old-service parity)
 		['name' => 'api#setLinkName',  'url' => '/api/v1/link-name',        'verb' => 'PUT'],
+		['name' => 'api#setLinkRequireLogin', 'url' => '/api/v1/link-require-login', 'verb' => 'PUT'],
 		// One-click mount of a public link into the visitor's own files
 		['name' => 'api#saveShare',    'url' => '/api/v1/save-share',       'verb' => 'POST'],
 		['name' => 'api#getServers',   'url' => '/api/v1/servers',          'verb' => 'GET'],

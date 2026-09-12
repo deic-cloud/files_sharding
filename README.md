@@ -160,6 +160,38 @@ The password-policy app's rules apply in either case.
 The endpoint also works without a browser session (HTTP basic auth):
 `curl -u user:pass -H 'OCS-APIREQUEST: true' -d name=laptop -d password=… …/device-password`.
 
+### "Require login" on public links + access audit
+
+The *Public link* popup has a **Require login** checkbox (share attribute
+`files_sharding:require_login`, set via `PUT /ocs/v2.php/apps/files_sharding/api/v1/link-require-login`
+`{path, requireLogin}`). Such a link opens only for people who hold an account
+on the service, and every access is logged with their username — the old
+service's feature for review workflows (requested by the DTU administration).
+
+Enforced on every surface a link is served from (`Service/LinkPolicy`): the
+share page, download and preview routes (`Middleware/RequireLoginMiddleware`),
+core's public DAV `/public.php/dav/files/<token>` (`DAV/RequireLoginPlugin`,
+added through `BeforeSabrePubliclyLoadedEvent`) and our anonymous
+`/remote.php/public/<token>` (`appinfo/public.php`, which then accepts the
+account's Basic credentials, e.g. `curl -u user:devicepassword`).
+
+Who counts as identified on the node serving the link: a logged-in user, or a
+**link visitor** — someone logged in on another cluster node. The visitor is
+passed through the SSO hop: `LoginController::ssoIssue` on their home node
+(now accepts any cluster node as `target`) issues a one-time master token and
+sends the browser to the content node's `sso/visit`, which validates it and
+records `{uid, display_name}` in the PHP session (`files_sharding_visitor`) —
+no account is created on the content node. With no session anywhere, the
+visitor is sent to the master's login page with `sso/issue` as `redirect_url`,
+so after logging in they land back on the link. Hops are attempted once per
+minute (`files_sharding_sso_tried` cookie), so a stale marker cannot loop.
+
+Audit: `Application::boot` registers a shutdown hook that calls
+`apache_note('username', <identity>)` for every request with an identified
+person (logged-in user or link visitor); a LogFormat containing `%{username}n`
+(the ScienceData image has it) then records who fetched what. mod_php only —
+a no-op under PHP-FPM.
+
 ### WebDAV
 
 The desktop sync client and WebDAV clients need the **silo URL**, not the master URL. Nextcloud's own WebDAV client follows the `X-NC-SiloURL` header set on redirect; generic WebDAV clients must be pointed at the silo directly.

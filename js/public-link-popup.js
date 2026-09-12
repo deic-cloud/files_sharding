@@ -334,6 +334,19 @@
 		return Promise.all(jobs)
 	}
 
+	function readRequireLogin(share) {
+		// Share attribute files_sharding:require_login (LinkPolicy).
+		try {
+			var attrs = typeof share.attributes === 'string' ? JSON.parse(share.attributes) : (share.attributes || [])
+			for (var i = 0; i < attrs.length; i++) {
+				if (attrs[i].scope === 'files_sharding' && attrs[i].key === 'require_login') {
+					return !!(attrs[i].enabled !== undefined ? attrs[i].enabled : attrs[i].value)
+				}
+			}
+		} catch (e) { /* ignore */ }
+		return false
+	}
+
 	function readCatalogListed(share) {
 		// OCS serializes share attributes as a JSON string of
 		// [{scope, key, enabled|value}]; files_picocms stores catalog_listed there.
@@ -439,6 +452,18 @@
 		})
 		nameInput.addEventListener('input', function () { openA.href = base + nameInput.value.trim() })
 
+		// "Require login": only account holders can open the link; access is logged.
+		var wasRequireLogin = readRequireLogin(share)
+		var requireBox = el('input', { type: 'checkbox' })
+		requireBox.checked = wasRequireLogin
+		var requireLbl = el('label', {
+			style: 'display:flex;align-items:center;gap:8px;margin:4px 0 10px 0;cursor:pointer;',
+			title: t('files_sharding', 'Only people with an account on this service can open the link; they may have to log in first. Every access is recorded with their username.'),
+		})
+		requireLbl.appendChild(requireBox)
+		requireLbl.appendChild(el('span', { text: t('files_sharding', 'Require login (account holders only; access is logged)') }))
+		box.appendChild(requireLbl)
+
 		// Public-dataset checkbox (only when files_picocms is enabled)
 		var listedBox = null
 		var wasListed = readCatalogListed(share)
@@ -526,6 +551,16 @@
 						var m = r.ocs && r.ocs.meta
 						if (!m || m.statuscode < 200 || m.statuscode >= 300) {
 							throw new Error((r.ocs && r.ocs.data && r.ocs.data.message) || (m && m.message) || t('files_sharding', 'Renaming the link failed'))
+						}
+					}))
+			}
+			if (requireBox.checked !== wasRequireLogin) {
+				jobs.push(ocs('PUT', '/ocs/v2.php/apps/files_sharding/api/v1/link-require-login',
+					{ path: path, requireLogin: requireBox.checked })
+					.then(function (r) {
+						var m = r.ocs && r.ocs.meta
+						if (!m || m.statuscode < 200 || m.statuscode >= 300) {
+							throw new Error((r.ocs && r.ocs.data && r.ocs.data.message) || (m && m.message) || t('files_sharding', 'Saving the login requirement failed'))
 						}
 					}))
 			}

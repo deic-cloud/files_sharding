@@ -39,6 +39,7 @@ class LoginController extends Controller {
 		private ICrypto           $crypto,
 		private LoggerInterface   $logger,
 		private SsoCookie         $ssoCookie,
+		private \OCA\FilesSharding\Service\LinkPolicy $linkPolicy,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -292,14 +293,16 @@ class LoginController extends Controller {
 	 * @PublicPage
 	 */
 	public function ssoIssue(string $target = '', string $return = ''): RedirectResponse|TemplateResponse {
-		$master = $this->shardingService->masterUrl();
+		$master = rtrim($this->shardingService->masterUrl(), '/');
 		$target = rtrim($target, '/');
-		if ($master === '' || $target === '' || $target !== $master) {
+		if ($master === '' || $target === '' || !$this->shardingService->isClusterServer($target)) {
 			return new TemplateResponse('files_sharding', 'login_error',
 				['message' => 'Unknown SSO target', 'login_url' => ''], 'guest');
 		}
 		$safeReturn = ($return !== '' && str_starts_with($return, '/') && !str_starts_with($return, '//')) ? $return : '/';
 		$back = $target . $safeReturn;
+		$targetIsMaster = $this->shardingService->authority($target) === $this->shardingService->authority($master);
+		$targetIsHere   = $target === $this->ssoCookie->ownUrl();
 
 		if (!$this->userSession->isLoggedIn()) {
 			// Stale marker — not logged in here either. Anonymous it is.
@@ -308,22 +311,64 @@ class LoginController extends Controller {
 		}
 		$userId = $this->userSession->getUser()->getUID();
 
+		if ($targetIsHere) {
+			// The target is this very node and there IS a session: nothing to hop
+			// (a login with this endpoint as redirect_url landed here).
+			return new RedirectResponse($back);
+		}
+
+		// One-time token for the user: the master issues them (locally when we
+		// are the master, otherwise over the internal API).
 		if ($this->shardingService->isMaster()) {
-			// Marker pointed at the master while the master had no session: the
-			// master session simply expired. Nothing to hop; land anonymously.
-			return new RedirectResponse($back);
+			$token = $this->tokenService->issue($userId);
+		} else {
+			$data  = $this->client->postDirect($this->shardingService->masterInternalUrl(), 'internal/token', ['userId' => $userId]);
+			$token = (string)($data['token'] ?? '');
 		}
-		$data  = $this->client->postDirect($this->shardingService->masterInternalUrl(), 'internal/token', ['userId' => $userId]);
-		$token = (string)($data['token'] ?? '');
 		if ($token === '') {
-			$this->logger->warning("files_sharding: ssoIssue: master issued no token for {$userId}");
+			$this->logger->warning("files_sharding: ssoIssue: no token issued for {$userId}");
 			return new RedirectResponse($back);
 		}
-		$url = $target . '/index.php/apps/files_sharding/login'
+		// Master target: a full session via exchange() — the master holds a
+		// directory account for everyone, so nothing is created. Any other node:
+		// a link-visitor identity only (ssoVisit) — never a stray account.
+		$endpoint = $targetIsMaster ? 'login' : 'sso/visit';
+		$url = $target . '/index.php/apps/files_sharding/' . $endpoint
 			. '?token='  . urlencode($token)
 			. '&user='   . urlencode($userId)
 			. '&return=' . urlencode($safeReturn);
 		return new RedirectResponse($url);
+	}
+
+	/**
+	 * Target node of a hop for a "require login" public link (LinkPolicy): the
+	 * visitor is logged in elsewhere in the cluster and arrives with a one-time
+	 * master token. Validate it and remember who they are in THIS session — as
+	 * a link visitor, not as a local account — then land on the link.
+	 *
+	 * @NoCSRFRequired
+	 * @PublicPage
+	 */
+	#[\OCP\AppFramework\Http\Attribute\PublicPage]
+	#[\OCP\AppFramework\Http\Attribute\NoCSRFRequired]
+	public function ssoVisit(string $token = '', string $user = '', string $return = ''): RedirectResponse|TemplateResponse {
+		$safeReturn = ($return !== '' && str_starts_with($return, '/') && !str_starts_with($return, '//')) ? $return : '/';
+		if ($token === '' || $user === '') {
+			return new RedirectResponse($safeReturn);
+		}
+		if ($this->shardingService->isMaster()) {
+			$uid  = $this->tokenService->consume($token);
+			$u    = $uid !== null ? $this->userManager->get($uid) : null;
+			$data = $u === null ? null : ['user_id' => $u->getUID(), 'display_name' => $u->getDisplayName()];
+		} else {
+			$data = $this->client->postDirect($this->shardingService->masterInternalUrl(), 'internal/token/validate', ['token' => $token]);
+		}
+		if ($data === null || empty($data['user_id']) || $data['user_id'] !== $user) {
+			$this->logger->warning("files_sharding: ssoVisit: token validation failed for user={$user}");
+			return new RedirectResponse($safeReturn);
+		}
+		$this->linkPolicy->setVisitor((string)$data['user_id'], (string)($data['display_name'] ?? ''));
+		return new RedirectResponse($safeReturn);
 	}
 
 	// ── Master-login sudo confirmation ────────────────────────────────────────

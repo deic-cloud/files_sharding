@@ -32,8 +32,33 @@ class ApiController extends OCSController {
 		private GroupShareFanoutService $fanout,
 		private \OCP\Share\IManager $shareManager,
 		private \OCP\Files\IRootFolder $rootFolder,
+		private \OCA\FilesSharding\Service\LinkPolicy $linkPolicy,
 	) {
 		parent::__construct($appName, $request);
+	}
+
+	/**
+	 * "Require login" on the public link of $path (LinkPolicy): only account
+	 * holders can open the link, and every access is logged with their username.
+	 * Stored as the share attribute files_sharding:require_login.
+	 */
+	#[NoAdminRequired]
+	public function setLinkRequireLogin(string $path, bool $requireLogin = true): DataResponse {
+		$uid = $this->currentUserId();
+		if ($uid === '') {
+			return new DataResponse(['message' => 'Not logged in'], 401);
+		}
+		try {
+			$node = $this->rootFolder->getUserFolder($uid)->get(ltrim($path, '/'));
+		} catch (\Throwable) {
+			return new DataResponse(['message' => 'File not found'], 404);
+		}
+		$shares = $this->shareManager->getSharesBy($uid, \OCP\Share\IShare::TYPE_LINK, $node, false, 1, 0);
+		if ($shares === []) {
+			return new DataResponse(['message' => 'No public link exists for this file — create one first'], 404);
+		}
+		$this->linkPolicy->setRequireLogin($shares[0], $requireLogin);
+		return new DataResponse(['require_login' => $requireLogin, 'token' => $shares[0]->getToken()]);
 	}
 
 	/**

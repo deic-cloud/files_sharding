@@ -98,6 +98,10 @@ class Application extends App implements IBootstrap {
 		$context->registerMiddleware(OcmShareReceivedMiddleware::class, true);
 		$context->registerMiddleware(SudoPasswordMiddleware::class, true);
 		$context->registerMiddleware(AdminIpMiddleware::class, true);
+		// "Require login" on public links (LinkPolicy): share page/download/preview
+		// controllers here, core's public DAV via the Sabre plugin below.
+		$context->registerMiddleware(\OCA\FilesSharding\Middleware\RequireLoginMiddleware::class, true);
+		$context->registerEventListener(\OCP\BeforeSabrePubliclyLoadedEvent::class, \OCA\FilesSharding\Listener\PublicSabrePluginListener::class);
 		$context->registerEventListener(BeforeTemplateRenderedEvent::class, SudoScriptListener::class);
 		$context->registerEventListener(BeforeTemplateRenderedEvent::class, \OCA\FilesSharding\Listener\HidePasswordChangeListener::class);
 		$context->registerEventListener(BeforeLoginTemplateRenderedEvent::class, SudoScriptListener::class);
@@ -111,6 +115,32 @@ class Application extends App implements IBootstrap {
 		$userManager->registerBackend($context->getServerContainer()->get(IpAuthBackend::class));
 
 		$this->concealSharesFromDavClients($context);
+		$this->noteUsernameForApacheLog($context);
+	}
+
+	/**
+	 * Access audit: hand the identified person's username to Apache as the
+	 * request note 'username', so a LogFormat with %{username}n records WHO
+	 * fetched what — for every request, public links included (the identity
+	 * behind a "require login" link, see LinkPolicy, counts too). Set at
+	 * shutdown, when authentication has certainly happened (DAV authenticates
+	 * inside Sabre, long after boot). mod_php only; a no-op under FPM.
+	 */
+	private function noteUsernameForApacheLog(IBootContext $context): void {
+		if (!function_exists('apache_note')) {
+			return;
+		}
+		$server = $context->getServerContainer();
+		register_shutdown_function(static function () use ($server): void {
+			try {
+				$uid = $server->get(\OCA\FilesSharding\Service\LinkPolicy::class)->identity();
+				if ($uid !== '') {
+					apache_note('username', $uid);
+				}
+			} catch (\Throwable) {
+				// never let the audit note break a request
+			}
+		});
 	}
 
 	/**

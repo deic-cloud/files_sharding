@@ -102,7 +102,7 @@ class ShardingService {
 	}
 
 	/** host:port of a URL, lowercased ('' host+port → ':'). */
-	private function authority(string $url): string {
+	public function authority(string $url): string {
 		$p = parse_url($url);
 		return strtolower(($p['host'] ?? '') . ':' . ($p['port'] ?? ''));
 	}
