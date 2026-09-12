@@ -156,6 +156,16 @@ class X509Backend extends ABackend implements IUserBackend, IApacheBackend, IChe
 
 	// ── Helpers ───────────────────────────────────────────────────────────────
 
+	/**
+	 * Is this request a trusted daemon (trusted_dn_header_host_dns certificate)
+	 * acting on behalf of a user? Used by the conceal gate to let such daemons
+	 * see the user's full view.
+	 */
+	public function isTrustedDaemonRequest(): bool {
+		$dn = $this->getClientDn();
+		return $dn !== '' && $this->isTrustedDaemon($dn) && $this->impersonatedUser() !== '';
+	}
+
 	private function getClientDn(): string {
 		// The VERIFIED client-certificate subject DN.
 		//

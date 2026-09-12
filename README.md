@@ -180,7 +180,7 @@ Sharing is **not** distributed state. The **master is the single authority** and
 
 | Endpoint | Content |
 |---|---|
-| `/remote.php/webdav`, `/remote.php/dav/files/{uid}` | own files only for external clients (sync/curl/mounts); received shares + grant folders are concealed for requests with an `Authorization` header — the cookie-authenticated web UI keeps the stock view |
+| `/remote.php/webdav`, `/remote.php/dav/files/{uid}` (also the legacy `/files`, `/grid`) | own files only for external clients (sync/curl/mounts); received shares + grant folders are concealed for requests with an `Authorization` header — the cookie-authenticated web UI keeps the stock view. Exempt: our own infrastructure acting for the user — credential-less pod-VLAN requests (`IpAuthBackend`) and trusted X.509 daemons (`X509Backend`), e.g. the PDF-signing service fetching a PDF that sits in a share |
 | `/remote.php/sharingin/<owner_id>/<item>` | shares received, one dir per owner, **read/write** per share permissions |
 | `/remote.php/sharingout/` | what the user has shared, flat (fan-out children collapsed) |
 | `/remote.php/user_group_admin/{gid}/` | grant folders (user_group_admin app) |

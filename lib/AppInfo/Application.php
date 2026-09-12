@@ -8,7 +8,6 @@ use OCA\DAV\Events\SabrePluginAddEvent;
 use OCA\FederatedFileSharing\Events\FederatedShareAddedEvent;
 use OCA\FilesSharding\Auth\IpAuthBackend;
 use OCA\FilesSharding\Auth\X509Backend;
-use OCA\FilesSharding\Files\ConcealedGrantStorage;
 use OCA\FilesSharding\Listener\CspListener;
 use OCA\FilesSharding\Listener\ExternalShareScanWarmer;
 use OCA\FilesSharding\Listener\GroupMembershipListener;
@@ -145,21 +144,19 @@ class Application extends App implements IBootstrap {
 	private function concealSharesFromDavClients(IBootContext $context): void {
 		$server = $context->getServerContainer();
 		try {
-			$request = $server->get(\OCP\IRequest::class);
-			$uri = $request->getRequestUri();
-			// Cover EVERY DAV surface that serves the user's own tree: core's
+			// The condition lives in ConcealGrantsWrapperListener::applies() so the
+			// mount filter here and the storage wrapper there always agree. It
+			// covers EVERY DAV surface that serves the user's own tree: core's
 			// /remote.php/webdav + /remote.php/dav, AND the legacy pretty
 			// endpoints (/files, /grid — served by appinfo/legacydav.php, reached
-			// directly by rewrite or via their /remote.php service names). Without
-			// them a sync client on the pretty URL would see received shares that
-			// the canonical endpoints conceal.
-			// legacydav.php presents its URI prefixed with its own script path while the
-			// stack boots (see there) — accept that spelling too.
-			if (!preg_match('#^(/apps/files_sharding/appinfo/legacydav\.php)?/(remote\.php/(webdav|dav|sddav|files|grid)|files|grid)(/|$)#', $uri)) {
+			// directly by rewrite or via their /remote.php service names; while the
+			// stack boots legacydav.php presents its URI prefixed with its own
+			// script path). Only requests with an Authorization header (the
+			// browser's cookie session keeps the stock view), and not our own
+			// infrastructure acting for the user (pod-VLAN IP trust, trusted X.509
+			// daemons) — see applies().
+			if (!$server->get(\OCA\FilesSharding\Listener\ConcealGrantsWrapperListener::class)->applies()) {
 				return;
-			}
-			if ($request->getHeader('Authorization') === '') {
-				return; // browser session (cookie auth) — web UI keeps shares
 			}
 
 			// Hide received-share mounts (local + federated).
