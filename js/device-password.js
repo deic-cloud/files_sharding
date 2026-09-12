@@ -35,21 +35,31 @@
 		var button = form.querySelector('button[type="submit"]');
 		if (!nameField || !button) return;
 
-		var wrap = document.createElement('div');
-		wrap.className = 'fsh-device-password';
-		wrap.style.cssText = 'display:inline-flex;flex-direction:column;margin:0 8px;';
-		var input = document.createElement('input');
+		// Clone the stock "App name" NcTextField so the new field gets exactly the
+		// same look (its scoped-CSS data-v-* attributes travel with the clone),
+		// including the label shown inside the border once something is typed.
+		var stock = nameField.closest('.input-field') || nameField.parentNode;
+		var wrap = stock.cloneNode(true);
+		wrap.classList.remove('app-name-text-field');
+		wrap.classList.add('fsh-device-password');
+		wrap.style.marginInlineStart = '8px';
+		var input = wrap.querySelector('input');
+		var label = wrap.querySelector('label');
+		var labelText = t('files_sharding', 'Password (optional)');
 		input.type = 'password';
 		input.id = FIELD_ID;
+		input.name = FIELD_ID;
+		input.value = '';
 		input.autocomplete = 'new-password';
-		input.placeholder = t('files_sharding', 'Password (optional)');
+		input.removeAttribute('maxlength');
+		input.removeAttribute('disabled');
+		input.placeholder = labelText;
 		input.title = t('files_sharding', 'Choose the password yourself (at least {n} characters) — leave empty to have one generated', { n: MIN_LENGTH });
 		input.minLength = MIN_LENGTH;
-		input.style.cssText = 'height:44px;min-width:230px;';
-		var hint = document.createElement('small');
-		hint.style.cssText = 'color:var(--color-text-maxcontrast);margin-top:2px;';
-		hint.textContent = t('files_sharding', 'Leave empty to have one generated; at least {n} characters', { n: MIN_LENGTH });
-		wrap.append(input, hint);
+		if (label) {
+			label.textContent = labelText;
+			label.htmlFor = FIELD_ID;
+		}
 		button.parentNode.insertBefore(wrap, button);
 	}
 
