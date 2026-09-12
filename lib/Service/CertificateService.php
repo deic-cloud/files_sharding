@@ -163,6 +163,9 @@ class CertificateService {
 		$secret  = $this->config->getSystemValueString('secret', '');
 		$privKey = openssl_pkey_get_private('file://' . $keyFile, $secret ?: null);
 		if ($privKey === false) {
+			// The key is encrypted with the instance 'secret'; a changed secret
+			// leaves it unopenable. Regenerating the certificate creates a new key.
+			$this->logger->warning("files_sharding: CertificateService: cannot open {$keyFile} with the current secret — the certificate must be regenerated");
 			return '';
 		}
 		$pem = '';

@@ -463,6 +463,10 @@ class ApiController extends OCSController {
 		if ($info === null) {
 			return new DataResponse(['exists' => false]);
 		}
+		// key_ok false = the key file exists but cannot be opened (it is encrypted
+		// with the instance secret, so this happens after a secret change); the
+		// certificate is then unusable until regenerated.
+		$info['key_ok'] = $this->certificateService->getKeyPem($userId) !== '';
 		return new DataResponse(array_merge(['exists' => true], $info));
 	}
 

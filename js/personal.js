@@ -133,11 +133,14 @@ function renderCertInfo(info) {
     del.style.display = 'none';
     return;
   }
+  const keyWarning = info.key_ok === false
+    ? '<p style="color:var(--color-error-text,#8A0000)">The private key of this certificate can no longer be read (the server secret has changed). Generate a new certificate before signing or logging in with it.</p>'
+    : '';
   div.innerHTML = `
     <dl>
       <dt>Subject</dt><dd><code>${e(info.dn)}</code></dd>
       <dt>Expires</dt><dd>${e(info.expires)}</dd>
-    </dl>
+    </dl>${keyWarning}
     <div class="fsh-cert-downloads">
       <a class="button" href="${certBase}/x509/cert" download="usercert.pem">Download certificate (PEM)</a>
       <a class="button" href="${certBase}/x509/key"  download="userkey.pem">Download private key (PEM)</a>
