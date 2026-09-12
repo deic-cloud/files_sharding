@@ -56,10 +56,17 @@ if ($userId === '') {
 	echo json_encode(['status' => 'error', 'data' => ['message' => 'Not authenticated']]);
 	return;
 }
-$pem = \OCP\Server::get(\OCA\FilesSharding\Service\CertificateService::class)->getKeyPem($userId);
+$certService = \OCP\Server::get(\OCA\FilesSharding\Service\CertificateService::class);
+$pem = $certService->getKeyPem($userId);
 if ($pem === '') {
 	http_response_code(404);
-	echo json_encode(['status' => 'error', 'data' => ['message' => 'No key for user']]);
+	// Distinguish "never generated" from "exists but encrypted under a previous
+	// server secret" — the latter is what a signing daemon runs into after a
+	// secret change, and the fix (regenerate) is the user's to do.
+	$msg = $certService->getCertInfo($userId) !== null
+		? 'Key for user cannot be read (server secret changed) — the user must regenerate the certificate'
+		: 'No key for user';
+	echo json_encode(['status' => 'error', 'data' => ['message' => $msg]]);
 	return;
 }
 echo json_encode(['status' => 'success', 'data' => ['private_key' => $pem]]);
