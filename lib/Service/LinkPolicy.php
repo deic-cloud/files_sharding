@@ -67,6 +67,18 @@ class LinkPolicy {
 	/** The identified person behind this request: uid of the logged-in user, or the link visitor's uid, or ''. */
 	public function identity(): string {
 		$uid = $this->userSession->getUser()?->getUID() ?? '';
+		if ($uid === '') {
+			// Public-share code puts the user session into incognito mode
+			// (OC_User::setIncognitoMode) so getUser() is null on the share page,
+			// its downloads and the public DAV even for a logged-in browser. The
+			// session's user_id — what core itself trusts before validation —
+			// still names the person.
+			try {
+				$uid = (string)($this->session->get('user_id') ?? '');
+			} catch (\Throwable) {
+				$uid = '';
+			}
+		}
 		if ($uid !== '') {
 			return $uid;
 		}
