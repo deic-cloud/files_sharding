@@ -26,7 +26,7 @@ Leave <em>Allowed from</em> empty to allow from any IP.</p>
 <form id="fsh-folder-form" style="display:flex;gap:.5em;align-items:flex-end;flex-wrap:wrap;margin-bottom:1.5em">
  <label>Folder path<br><input type="text" id="fsh-f-folder" placeholder="/Documents" style="width:180px"></label>
  <label>Allowed from<br><input type="text" id="fsh-f-from" placeholder="10.0.0.0/8, 192.168.1.0/24" style="width:260px"></label>
- <label style="align-self:center;padding-top:1.2em"><input type="checkbox" id="fsh-f-hide"> Hide from sync clients</label>
+ <label style="display:flex;align-items:center;gap:.4em;min-height:var(--default-clickable-area,44px)"><input type="checkbox" id="fsh-f-hide" style="margin:0"> Hide from sync clients</label>
  <button type="submit" class="primary">Add rule</button>
 </form>
 
