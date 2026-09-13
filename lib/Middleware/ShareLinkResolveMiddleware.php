@@ -64,10 +64,23 @@ class ShareLinkResolveMiddleware extends Middleware {
 	}
 
 	public function afterException(Controller $controller, string $methodName, \Exception $exception): Response {
-		if (!($exception instanceof ShareLinkElsewhereException)) {
-			throw $exception;
+		if ($exception instanceof ShareLinkElsewhereException) {
+			return new RedirectResponse($exception->url);
 		}
-		return new RedirectResponse($exception->url);
+		// Core's PublicShareMiddleware runs before us and throws NotFoundException
+		// for a token this node does not hold — that is the moment to look elsewhere.
+		if ($exception instanceof \OCP\Files\NotFoundException
+			&& in_array(get_class($controller), self::CONTROLLERS, true)
+			&& $this->shardingService->isMaster()) {
+			$token = (string)($this->request->getParam('token') ?? '');
+			if ($token !== '' && preg_match('/^[A-Za-z0-9._-]{3,64}$/', $token)) {
+				$home = $this->ownerNodeFor($token);
+				if ($home !== null) {
+					return new RedirectResponse(rtrim($home, '/') . $this->request->getRequestUri());
+				}
+			}
+		}
+		throw $exception;
 	}
 
 	/** Public URL of the silo answering for $token, or null. Cached briefly per token. */
