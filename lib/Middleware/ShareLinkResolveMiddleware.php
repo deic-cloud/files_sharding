@@ -42,45 +42,32 @@ class ShareLinkResolveMiddleware extends Middleware {
 	) {
 	}
 
-	public function beforeController(Controller $controller, string $methodName): void {
-		if (!in_array(get_class($controller), self::CONTROLLERS, true) || !$this->shardingService->isMaster()) {
-			return;
+	/**
+	 * Core's PublicShareMiddleware throws for an unknown token BEFORE any app
+	 * middleware runs, and afterException() is only offered to middlewares whose
+	 * beforeController() ran — so the hook that reliably sees the 404 is
+	 * afterController(), which every middleware gets once a response exists.
+	 */
+	public function afterController(Controller $controller, string $methodName, Response $response): Response {
+		if ($response->getStatus() !== 404
+			|| !in_array(get_class($controller), self::CONTROLLERS, true)
+			|| !$this->shardingService->isMaster()) {
+			return $response;
 		}
 		$token = (string)($this->request->getParam('token') ?? '');
 		if ($token === '' || !preg_match('/^[A-Za-z0-9._-]{3,64}$/', $token)) {
-			return;
+			return $response;
 		}
 		try {
 			$this->shareManager->getShareByToken($token);
-			return; // ours
+			return $response; // ours after all (404 for another reason)
 		} catch (ShareNotFound) {
 		}
 		$home = $this->ownerNodeFor($token);
 		if ($home === null) {
-			return; // nobody has it — let core 404
+			return $response; // nobody has it
 		}
-		$uri = $this->request->getRequestUri();
-		throw new ShareLinkElsewhereException(rtrim($home, '/') . $uri);
-	}
-
-	public function afterException(Controller $controller, string $methodName, \Exception $exception): Response {
-		if ($exception instanceof ShareLinkElsewhereException) {
-			return new RedirectResponse($exception->url);
-		}
-		// Core's PublicShareMiddleware runs before us and throws NotFoundException
-		// for a token this node does not hold — that is the moment to look elsewhere.
-		if ($exception instanceof \OCP\Files\NotFoundException
-			&& in_array(get_class($controller), self::CONTROLLERS, true)
-			&& $this->shardingService->isMaster()) {
-			$token = (string)($this->request->getParam('token') ?? '');
-			if ($token !== '' && preg_match('/^[A-Za-z0-9._-]{3,64}$/', $token)) {
-				$home = $this->ownerNodeFor($token);
-				if ($home !== null) {
-					return new RedirectResponse(rtrim($home, '/') . $this->request->getRequestUri());
-				}
-			}
-		}
-		throw $exception;
+		return new RedirectResponse(rtrim($home, '/') . $this->request->getRequestUri());
 	}
 
 	/** Public URL of the silo answering for $token, or null. Cached briefly per token. */
@@ -115,11 +102,5 @@ class ShareLinkResolveMiddleware extends Middleware {
 		}
 		$cache->set($token, $found ?? '', 300);
 		return $found;
-	}
-}
-
-class ShareLinkElsewhereException extends \Exception {
-	public function __construct(public readonly string $url) {
-		parent::__construct('Share link lives on another node');
 	}
 }
