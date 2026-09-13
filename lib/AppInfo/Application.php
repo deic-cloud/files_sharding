@@ -100,6 +100,10 @@ class Application extends App implements IBootstrap {
 		$context->registerMiddleware(AdminIpMiddleware::class, true);
 		// "Require login" on public links (LinkPolicy): share page/download/preview
 		// controllers here, core's public DAV via the Sabre plugin below.
+		// Master: a share page whose token lives on a silo redirects there (legacy
+		// sciencedata.dk/shared/<token> links). Before RequireLoginMiddleware, which
+		// only knows local shares.
+		$context->registerMiddleware(\OCA\FilesSharding\Middleware\ShareLinkResolveMiddleware::class, true);
 		$context->registerMiddleware(\OCA\FilesSharding\Middleware\RequireLoginMiddleware::class, true);
 		$context->registerEventListener(\OCP\BeforeSabrePubliclyLoadedEvent::class, \OCA\FilesSharding\Listener\PublicSabrePluginListener::class);
 		$context->registerEventListener(BeforeTemplateRenderedEvent::class, SudoScriptListener::class);
