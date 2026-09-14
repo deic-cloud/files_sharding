@@ -102,6 +102,22 @@ class ShardingService {
 	}
 
 	/** host:port of a URL, lowercased ('' host+port → ':'). */
+	/**
+	 * The canonical public-link URL — the persistent identifier handed to people:
+	 * <master>/shared/<token>, the form the old service used (published in
+	 * papers). The deployment rewrites /shared/<token> to /index.php/s/<token>
+	 * (nc_htaccess_custom.conf); the master then forwards a token held by a silo
+	 * (ShareLinkResolveMiddleware). Tokens may be user-chosen names, hence
+	 * memorable URLs.
+	 */
+	public function publicLinkUrl(string $token): string {
+		$base = rtrim($this->masterUrl(), '/');
+		if ($base === '') {
+			$base = rtrim((string)$this->config->getSystemValue('overwrite.cli.url', ''), '/');
+		}
+		return $base . '/shared/' . rawurlencode($token);
+	}
+
 	public function authority(string $url): string {
 		$p = parse_url($url);
 		return strtolower(($p['host'] ?? '') . ':' . ($p['port'] ?? ''));

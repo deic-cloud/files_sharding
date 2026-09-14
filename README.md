@@ -163,8 +163,11 @@ The endpoint also works without a browser session (HTTP basic auth):
 ### Public links carry the master's address
 
 A public link is a persistent identifier, so the *Public link* popup, the
-link-name API and the catalog present every link as
-`<master>/index.php/s/<token>` — never the silo the owner happens to live on.
+link-name API and the catalog present every link in its canonical form
+`<master>/shared/<token>` (`ShardingService::publicLinkUrl()`) — the old
+service's form, memorable when the token is a user-chosen name, and never the
+silo the owner happens to live on. The deployment must rewrite `/shared/<token>`
+to `/index.php/s/<token>` (the image does, in `nc_htaccess_custom.conf`).
 The master forwards a token it does not hold to the silo that does
 (`Middleware/ShareLinkResolveMiddleware`, on the 404 of the share/preview
 controllers; `appinfo/public.php` probes the same way for anonymous DAV), so

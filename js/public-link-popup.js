@@ -419,14 +419,15 @@
 
 	function showLinkPhase(box, path, share, close) {
 		box.textContent = ''
-		// Links are shown with the MASTER's address — a persistent identifier that
-		// survives moving the owner to another node (the master forwards).
-		var origin = window.location.origin + (OC.webroot || '')
+		// Links are shown in their canonical form <master>/shared/<name> — the
+		// persistent identifier of the old service, memorable when the name is
+		// user-chosen, and independent of the node the owner lives on (the
+		// deployment rewrites /shared/ and the master forwards to the data's node).
+		var base = window.location.origin + (OC.webroot || '') + '/index.php/s/'
 		try {
 			var master = OCP.InitialState.loadState('files_sharding', 'master_url')
-			if (master) { origin = master }
+			if (master) { base = master + '/shared/' }
 		} catch (e) { /* not a cluster: own address */ }
-		var base = origin + '/index.php/s/'
 
 		box.appendChild(el('h3', { text: t('files_sharding', 'Public link'), style: 'margin:0 0 12px 0;' }))
 

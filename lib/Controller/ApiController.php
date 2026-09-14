@@ -173,13 +173,9 @@ class ApiController extends OCSController {
 		return new DataResponse(['status' => 'added']);
 	}
 
-	/** Public links carry the MASTER's address (persistent identifier; the master forwards to the data's node). */
+	/** Canonical public-link URL: <master>/shared/<token> (see ShardingService::publicLinkUrl). */
 	private function linkUrl(string $token): string {
-		$base = rtrim($this->shardingService->masterUrl(), '/');
-		if ($base === '') {
-			$base = rtrim((string)$this->config->getSystemValue('overwrite.cli.url', ''), '/');
-		}
-		return $base . '/index.php/s/' . $token;
+		return $this->shardingService->publicLinkUrl($token);
 	}
 
 	private function linkNameTakenElsewhere(string $name): bool {
