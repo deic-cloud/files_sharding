@@ -101,7 +101,6 @@ class ShardingService {
 		return $own !== ':' && $own === $authority($server->getUrl());
 	}
 
-	/** host:port of a URL, lowercased ('' host+port → ':'). */
 	/**
 	 * The canonical public-link URL — the persistent identifier handed to people:
 	 * <master>/shared/<token>, the form the old service used (published in
@@ -118,6 +117,7 @@ class ShardingService {
 		return $base . '/shared/' . rawurlencode($token);
 	}
 
+	/** host:port of a URL, lowercased ('' host+port → ':'). */
 	public function authority(string $url): string {
 		$p = parse_url($url);
 		return strtolower(($p['host'] ?? '') . ':' . ($p['port'] ?? ''));
