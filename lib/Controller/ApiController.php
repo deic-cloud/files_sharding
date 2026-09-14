@@ -173,9 +173,13 @@ class ApiController extends OCSController {
 		return new DataResponse(['status' => 'added']);
 	}
 
+	/** Public links carry the MASTER's address (persistent identifier; the master forwards to the data's node). */
 	private function linkUrl(string $token): string {
-		$own = rtrim((string)$this->config->getSystemValue('overwrite.cli.url', ''), '/');
-		return $own . '/index.php/s/' . $token;
+		$base = rtrim($this->shardingService->masterUrl(), '/');
+		if ($base === '') {
+			$base = rtrim((string)$this->config->getSystemValue('overwrite.cli.url', ''), '/');
+		}
+		return $base . '/index.php/s/' . $token;
 	}
 
 	private function linkNameTakenElsewhere(string $name): bool {

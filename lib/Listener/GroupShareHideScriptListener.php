@@ -27,6 +27,7 @@ class GroupShareHideScriptListener implements IEventListener {
 	public function __construct(
 		private \OCP\AppFramework\Services\IInitialState $initialState,
 		private \OCP\IConfig $config,
+		private \OCA\FilesSharding\Service\ShardingService $shardingService,
 	) {
 	}
 
@@ -40,6 +41,10 @@ class GroupShareHideScriptListener implements IEventListener {
 		// is deployment config (brand-neutral app default lives in the JS).
 		$this->initialState->provideInitialState('link_warning',
 			(string)$this->config->getSystemValue('files_sharding_link_warning', ''));
+		// Public links are persistent identifiers: they carry the MASTER's address
+		// (the master forwards to whichever node holds the data — see
+		// ShareLinkResolveMiddleware), never the silo a user happens to live on.
+		$this->initialState->provideInitialState('master_url', rtrim($this->shardingService->masterUrl(), '/'));
 		Util::addScript('files_sharding', 'public-link-popup');
 	}
 }

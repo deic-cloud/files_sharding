@@ -160,6 +160,17 @@ The password-policy app's rules apply in either case.
 The endpoint also works without a browser session (HTTP basic auth):
 `curl -u user:pass -H 'OCS-APIREQUEST: true' -d name=laptop -d password=… …/device-password`.
 
+### Public links carry the master's address
+
+A public link is a persistent identifier, so the *Public link* popup, the
+link-name API and the catalog present every link as
+`<master>/index.php/s/<token>` — never the silo the owner happens to live on.
+The master forwards a token it does not hold to the silo that does
+(`Middleware/ShareLinkResolveMiddleware`, on the 404 of the share/preview
+controllers; `appinfo/public.php` probes the same way for anonymous DAV), so
+links keep working when users are moved between nodes. Initial state
+`files_sharding.master_url` feeds the popup.
+
 ### "Require login" on public links + access audit
 
 The *Public link* popup has a **Require login** checkbox (share attribute
