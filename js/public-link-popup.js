@@ -484,7 +484,7 @@
 				href: (OC.webroot || '') + '/remote.php/sites/public',
 				target: '_blank',
 				rel: 'noopener',
-				text: t('files_sharding', 'public dataset catalog'),
+				text: t('files_sharding', 'public datasets catalog'),
 				style: 'text-decoration:underline;',
 			})
 			// Don't let clicking the link toggle the checkbox (it sits inside the label).
