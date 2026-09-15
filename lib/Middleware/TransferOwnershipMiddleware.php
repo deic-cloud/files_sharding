@@ -7,10 +7,8 @@ namespace OCA\FilesSharding\Middleware;
 use OCA\FilesSharding\Service\InterServerClient;
 use OCA\FilesSharding\Service\ShardingService;
 use OCP\AppFramework\Controller;
-use OCP\AppFramework\Http;
-use OCP\AppFramework\Http\DataResponse;
-use OCP\AppFramework\Http\Response;
 use OCP\AppFramework\Middleware;
+use OCP\AppFramework\OCS\OCSBadRequestException;
 use OCP\IRequest;
 use OCP\IUserSession;
 use Psr\Log\LoggerInterface;
@@ -55,7 +53,10 @@ class TransferOwnershipMiddleware extends Middleware {
 		$sender = $this->userSession->getUser()?->getUID() ?? '?';
 		$this->logger->info('files_sharding: refused ownership transfer from ' . $sender . ' to ' . $recipient
 			. ($homedHere === null ? ' (recipient home node unknown — master not reachable)' : ' (recipient is homed on another node)'));
-		throw new CrossNodeTransferException($recipient);
+		// An OCS route: core's OCSMiddleware turns this into the proper envelope
+		// (status 400 + message). The stock dialog shows its generic error anyway;
+		// js/transfer-hint.js explains the rule on the page.
+		throw new OCSBadRequestException('Ownership can only be transferred to users whose home is on this server.');
 	}
 
 	/**
@@ -89,15 +90,5 @@ class TransferOwnershipMiddleware extends Middleware {
 			}
 		}
 		return false; // unknown to the master: not a cluster user homed here
-	}
-
-	public function afterException(Controller $controller, string $methodName, \Exception $exception): Response {
-		if ($exception instanceof CrossNodeTransferException) {
-			return new DataResponse(
-				['message' => 'Ownership can only be transferred to users whose home is on this server.'],
-				Http::STATUS_BAD_REQUEST,
-			);
-		}
-		throw $exception;
 	}
 }
