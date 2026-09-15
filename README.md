@@ -280,3 +280,18 @@ rsync -av --delete apps/files_sharding/ server:/var/www/nextcloud/apps/files_sha
 # Run pending migrations after schema changes
 occ migrations:execute files_sharding <VersionClass>
 ```
+
+## Ownership transfer (Settings → Sharing) is same-node only
+
+Stock *Transfer ownership of a file or folder* moves the files into the
+recipient's home **on the node where the sender is**. In the cluster the picker
+offers every user (the sharee search lists cluster users as internal), and a
+remote-homed user typically has a directory account on this node as well — so
+a transfer to them would land in a home they never log into and the data would
+vanish for both. `Middleware/TransferOwnershipMiddleware` therefore refuses
+`TransferOwnershipController::transfer` unless the recipient is homed on this
+node: on the master from the user→silo map, on a silo by asking the master
+(`internal/users/search`, exact uid; fail-closed when unreachable). The stock
+dialog can only show its generic error, so `js/transfer-hint.js`
+(`Listener/TransferHintScriptListener`, Settings → Sharing) states the rule on
+the page. Cross-node transfers would need a move between nodes — not built.

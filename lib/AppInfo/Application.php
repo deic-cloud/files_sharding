@@ -105,9 +105,13 @@ class Application extends App implements IBootstrap {
 		// only knows local shares.
 		$context->registerMiddleware(\OCA\FilesSharding\Middleware\ShareLinkResolveMiddleware::class, true);
 		$context->registerMiddleware(\OCA\FilesSharding\Middleware\RequireLoginMiddleware::class, true);
+		// Stock "Transfer ownership" moves files into a LOCAL home; refuse recipients
+		// homed on another node (the picker offers every cluster user).
+		$context->registerMiddleware(\OCA\FilesSharding\Middleware\TransferOwnershipMiddleware::class, true);
 		$context->registerEventListener(\OCP\BeforeSabrePubliclyLoadedEvent::class, \OCA\FilesSharding\Listener\PublicSabrePluginListener::class);
 		$context->registerEventListener(BeforeTemplateRenderedEvent::class, SudoScriptListener::class);
 		$context->registerEventListener(BeforeTemplateRenderedEvent::class, \OCA\FilesSharding\Listener\HidePasswordChangeListener::class);
+		$context->registerEventListener(BeforeTemplateRenderedEvent::class, \OCA\FilesSharding\Listener\TransferHintScriptListener::class);
 		$context->registerEventListener(BeforeLoginTemplateRenderedEvent::class, SudoScriptListener::class);
 	}
 
