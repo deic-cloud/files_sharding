@@ -158,6 +158,13 @@ class ShareSyncService {
 					$this->eventDispatcher->dispatchTyped(new FederatedShareAddedEvent($remote));
 					if (!$sponsored) {
 						$this->notifyShareReceived($userId, (string)$id, $owner, trim($name, '/'));
+						// Tell interested apps where this landed, so they can place it
+						// properly for the recipient (markdown_notes moves a shared
+						// notebook into the recipient's Notes folder). Only this node
+						// knows the recipient's own conventions.
+						$this->eventDispatcher->dispatchTyped(
+							new \OCA\FilesSharding\Event\ExternalShareMountedEvent($userId, $mountpoint, $remote, $owner)
+						);
 					}
 				} else {
 					$this->notifyPendingShare($userId, (string)$id, $ownerCloudId, trim($name, '/'));
