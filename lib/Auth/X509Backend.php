@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OCA\FilesSharding\Auth;
 
 use OCA\FilesSharding\Db\ServerMapper;
+use OCA\FilesSharding\Service\CertificateService;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\Authentication\IApacheBackend;
 use OCP\DB\QueryBuilder\IQueryBuilder;
@@ -31,7 +32,11 @@ use Psr\Log\LoggerInterface;
  *
  * 2. User pods / containers: A user's own client certificate (DN stored in
  *    oc_preferences by the personal settings page) authenticates them for
- *    WebDAV access without a password.
+ *    WebDAV access without a password. For a certificate WE issued, the serial
+ *    must also be that of the certificate the account currently holds, so that
+ *    deleting or regenerating it withdraws the old one — see
+ *    certificateIsCurrent(). A DN the user registered for a certificate issued
+ *    elsewhere is matched on the DN alone, as before.
  *
  * 3. Trusted daemon: A request whose presented certificate DN is one of the
  *    'trusted_dn_header_host_dns' (e.g. the batch service, "/CN=batch") may act
@@ -44,6 +49,9 @@ use Psr\Log\LoggerInterface;
 class X509Backend extends ABackend implements IUserBackend, IApacheBackend, ICheckPasswordBackend {
 	private const SUDO_TTL = 300; // seconds
 
+	/** Whether the DN we are acting on came from the verified TLS connection here. */
+	private bool $dnFromEnv = false;
+
 	public function __construct(
 		private IRequest      $request,
 		private IConfig       $config,
@@ -51,6 +59,7 @@ class X509Backend extends ABackend implements IUserBackend, IApacheBackend, IChe
 		private ISession      $session,
 		private IDBConnection $db,
 		private IUserManager  $userManager,
+		private CertificateService $certificates,
 		private LoggerInterface $logger,
 	) {
 	}
@@ -186,13 +195,93 @@ class X509Backend extends ABackend implements IUserBackend, IApacheBackend, IChe
 		if ($verify === 'SUCCESS') {
 			foreach (['SSL_CLIENT_S_DN', 'REDIRECT_SSL_CLIENT_S_DN'] as $k) {
 				if (!empty($srv[$k])) {
+					$this->dnFromEnv = true;
 					return trim((string)$srv[$k]);
 				}
 			}
 		}
+		$this->dnFromEnv = false;
 		return trim($this->request->getHeader('SSL-CLIENT-S-DN')
 			?: $this->request->getHeader('X-Ssl-Client-S-Dn')
 			?: '');
+	}
+
+	/**
+	 * Serial of the certificate actually presented, from the same two sources as
+	 * the DN: Apache's SSL_CLIENT_M_SERIAL where TLS was terminated here, or a
+	 * header where a trusted proxy terminated it and chose to forward one.
+	 */
+	private function getClientSerial(): string {
+		$srv = $this->request->server ?? $_SERVER;
+		$verify = (string)($srv['SSL_CLIENT_VERIFY'] ?? $srv['REDIRECT_SSL_CLIENT_VERIFY'] ?? '');
+		if ($verify === 'SUCCESS') {
+			foreach (['SSL_CLIENT_M_SERIAL', 'REDIRECT_SSL_CLIENT_M_SERIAL'] as $k) {
+				if (!empty($srv[$k])) {
+					return CertificateService::normalizeSerial((string)$srv[$k]);
+				}
+			}
+		}
+		return CertificateService::normalizeSerial(
+			$this->request->getHeader('SSL-CLIENT-M-SERIAL')
+			?: $this->request->getHeader('X-Ssl-Client-M-Serial')
+			?: ''
+		);
+	}
+
+	/**
+	 * Is this certificate still the one the user currently holds?
+	 *
+	 * The service issues certificates but publishes no revocation list, so the
+	 * way a user withdraws one is to delete or regenerate it: the old copy must
+	 * then stop opening doors. That only works if authentication looks at more
+	 * than the subject DN, which is identical across every certificate we ever
+	 * issue to the same person. So for OUR OWN certificates we also require the
+	 * serial to be the serial of the certificate currently stored for that user
+	 * — regenerating mints a new one, deleting leaves none. This is what the old
+	 * service did (chooser/lib/x509_auth.php compared SSL_CLIENT_M_SERIAL with
+	 * the serial read back from usercert.pem) and what the port had lost.
+	 *
+	 * Certificates issued ELSEWHERE, whose DN a user registered here by hand,
+	 * are left alone: we hold no copy, so we have nothing to compare and no
+	 * business refusing them.
+	 *
+	 * Where a trusted proxy terminated the TLS and forwarded no serial there is
+	 * nothing to check either; that path is trusted by deployment configuration
+	 * already. Where we verified the certificate ourselves, the serial is always
+	 * exported next to the DN, so its absence is a reason to refuse.
+	 */
+	private function certificateIsCurrent(string $uid, string $dn): bool {
+		if (self::tokenizeDn($dn) !== self::tokenizeDn($this->certificates->issuedDn($uid))) {
+			return true; // not ours — nothing to pin it to
+		}
+		$presented = $this->getClientSerial();
+		if ($presented === '') {
+			if (!$this->dnFromEnv) {
+				return true; // proxy path, no serial forwarded
+			}
+			$this->logger->warning('files_sharding: X.509: refusing ' . $uid
+				. ' — our own certificate DN but no serial presented');
+			return false;
+		}
+		$current = $this->certificates->currentSerial($uid);
+		if ($current === '') {
+			$this->logger->warning('files_sharding: X.509: refusing ' . $uid
+				. ' — certificate ' . $presented . ' presented but the account holds none');
+			return false;
+		}
+		if ($current === '0') {
+			// Issued before certificates got a serial of their own. It still has to
+			// match, but every copy matches, so this pins nothing until it is reissued.
+			$this->logger->info('files_sharding: X.509: ' . $uid
+				. ' holds a certificate with serial 0, from before unique serials; '
+				. 'regenerating it would make withdrawal effective');
+		}
+		if ($current !== $presented) {
+			$this->logger->warning('files_sharding: X.509: refusing ' . $uid
+				. ' — certificate ' . $presented . ' is not the current one (' . $current . ')');
+			return false;
+		}
+		return true;
 	}
 
 	/**
@@ -304,6 +393,9 @@ class X509Backend extends ABackend implements IUserBackend, IApacheBackend, IChe
 			}
 		}
 		$result->closeCursor();
+		if ($match !== '' && !$this->certificateIsCurrent($match, $dn)) {
+			return '';
+		}
 		return $match;
 	}
 }

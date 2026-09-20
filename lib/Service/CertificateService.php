@@ -124,6 +124,62 @@ class CertificateService {
 		}
 	}
 
+	/**
+	 * The subject DN this service issues for a user, whether or not a
+	 * certificate currently exists. Used to tell one of OUR certificates apart
+	 * from a DN the user registered for a certificate issued elsewhere, which we
+	 * cannot say anything about.
+	 */
+	public function issuedDn(string $userId): string {
+		$org = $this->config->getSystemValueString('files_sharding_cert_org', 'sciencedata.dk');
+		return '/CN=' . $userId . '/O=' . $org;
+	}
+
+	/**
+	 * Serial of the certificate the user currently holds, normalised to
+	 * uppercase hex without leading zeros; '' when there is none.
+	 *
+	 * This is the revocation handle. Regenerating mints a new serial and
+	 * deleting leaves none, so a certificate that is no longer the current one
+	 * can be told apart from the one that is — see X509Backend.
+	 */
+	public function currentSerial(string $userId): string {
+		$certFile = $this->certDir($userId) . '/usercert.pem';
+		if (!file_exists($certFile)) {
+			return '';
+		}
+		$cert = openssl_x509_read((string)file_get_contents($certFile));
+		if ($cert === false) {
+			return '';
+		}
+		$info = openssl_x509_parse($cert);
+		if (!is_array($info)) {
+			return '';
+		}
+		return self::normalizeSerial((string)($info['serialNumberHex'] ?? ''));
+	}
+
+	/**
+	 * Serials are written differently by everyone who writes them: Apache's
+	 * SSL_CLIENT_M_SERIAL, openssl's `-serial`, and PHP's parser differ in case,
+	 * separators and leading zeros. Compare the number, not the spelling.
+	 *
+	 * Zero is a number here, not an absence. Certificates issued before this app
+	 * gave each one a random serial all carry serial 0, and several accounts on
+	 * the running service still hold one; treating that as "no serial" would shut
+	 * them out. It does mean such a certificate cannot be told apart from an
+	 * older copy of itself — the cure is to regenerate it, and
+	 * X509Backend::certificateIsCurrent() says so in the log.
+	 */
+	public static function normalizeSerial(string $serial): string {
+		$hex = strtoupper((string)preg_replace('/[^0-9A-Fa-f]/', '', $serial));
+		if ($hex === '') {
+			return '';
+		}
+		$hex = ltrim($hex, '0');
+		return $hex === '' ? '0' : $hex;
+	}
+
 	public function getCertInfo(string $userId): ?array {
 		$certFile = $this->certDir($userId) . '/usercert.pem';
 		if (!file_exists($certFile)) {
