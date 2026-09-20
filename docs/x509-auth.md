@@ -45,6 +45,34 @@ Given the presented DN `D = SSL-CLIENT-S-DN`:
 
 DNs are compared **tokenised** (`CN=…,O=…` ⇔ `/CN=…/O=…`, order-independent).
 
+### Is it still the certificate the account holds? (`certificateIsCurrent`)
+
+Case 3 has one further condition, because the service issues certificates but
+publishes no revocation list. The way a user withdraws a certificate is to
+delete or regenerate it, and that can only work if authentication looks past the
+subject DN, which is identical across every certificate we ever issue to the
+same person.
+
+So when the presented DN is the one `CertificateService::issuedDn()` would mint
+for that account, the presented serial (`SSL_CLIENT_M_SERIAL`, or a
+`SSL-CLIENT-M-SERIAL` header from the proxy) must equal the serial of the
+`usercert.pem` the account currently holds. Regenerating mints a new serial;
+deleting leaves none; either way the old copy stops authenticating. This is what
+`chooser/lib/x509_auth.php` did on the old service.
+
+Three deliberate exceptions:
+
+- A DN registered for a certificate issued **elsewhere** is matched on the DN
+  alone. We hold no copy, so there is nothing to compare.
+- Where a **trusted proxy** terminated the TLS and forwarded no serial, there is
+  nothing to check; that path is already trusted by the configuration below. A
+  serial that *is* forwarded gets checked.
+- **Serial 0 is a serial.** Certificates issued before this app gave each one a
+  random serial all carry 0, and accounts on the running service still hold
+  them; treating that as "no serial" would shut them out. Such a certificate
+  cannot be told apart from an older copy of itself, so it pins nothing until it
+  is regenerated, and an INFO line in the log says so.
+
 ## Configuration
 
 | Key | Where | Meaning |
