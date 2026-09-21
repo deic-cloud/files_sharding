@@ -45,6 +45,19 @@ Given the presented DN `D = SSL-CLIENT-S-DN`:
 
 DNs are compared **tokenised** (`CN=…,O=…` ⇔ `/CN=…/O=…`, order-independent).
 
+### The two impersonating paths (`trusted_client_fingerprints`)
+
+Cases 1 and 2 authenticate as somebody else: the trusted daemon may act as ANY
+user, and a registered server speaks for a whole node. Both match on the subject
+DN alone, which is precisely what a stolen CA key can forge.
+
+`trusted_client_fingerprints` in the config file — a comma-separated list, or an
+array, of SHA-256 fingerprints — restricts those two paths to certificates we
+have named. Unset means the old behaviour. Set, but with a web server that does
+not export the certificate, it logs that it cannot enforce and allows the
+request rather than locking out the daemon; enforcement needs
+`SSLOptions +ExportCertData`.
+
 ### Is it still the certificate the account holds? (`certificateIsCurrent`)
 
 Case 3 has one further condition, because the service issues certificates but
@@ -59,6 +72,13 @@ for that account, the presented serial (`SSL_CLIENT_M_SERIAL`, or a
 `usercert.pem` the account currently holds. Regenerating mints a new serial;
 deleting leaves none; either way the old copy stops authenticating. This is what
 `chooser/lib/x509_auth.php` did on the old service.
+
+Where Apache exports the certificate itself (`SSLOptions +ExportCertData`), the
+**whole certificate** is compared instead, by SHA-256 against the stored
+`usercert.pem`. That is strictly stronger and is the one check a stolen CA key
+cannot get past: an attacker can mint a certificate with any subject and any
+serial, but not one carrying the user's public key. None of our servers export
+it yet, so today this falls through to the serial.
 
 Three deliberate exceptions:
 
