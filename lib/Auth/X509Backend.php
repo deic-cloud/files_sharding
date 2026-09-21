@@ -99,9 +99,11 @@ class X509Backend extends ABackend implements IUserBackend, IApacheBackend, IChe
 		// proxy that forwards SSL headers for all connections from hijacking
 		// password sessions.
 		if ($this->isTrustedDaemon($dn)) {
-			return $this->impersonatedUser() !== '';
+			return $this->privilegedCertificateAccepted('the trusted daemon ' . $dn)
+				&& $this->impersonatedUser() !== '';
 		}
-		return $this->serverMapper->findByDn($dn) !== null
+		return ($this->serverMapper->findByDn($dn) !== null
+				&& $this->privilegedCertificateAccepted('a registered server'))
 			|| $this->findUserByDn($dn) !== '';
 	}
 
@@ -116,13 +118,15 @@ class X509Backend extends ABackend implements IUserBackend, IApacheBackend, IChe
 		// The verified daemon certificate is the authorisation; the username
 		// only selects whom to impersonate. Must be an existing account.
 		if ($this->isTrustedDaemon($dn)) {
-			return $this->impersonatedUser();
+			return $this->privilegedCertificateAccepted('the trusted daemon ' . $dn)
+				? $this->impersonatedUser() : '';
 		}
 
 		// Check if the DN matches a registered server
 		$server = $this->serverMapper->findByDn($dn);
 		if ($server !== null) {
-			return '_server_' . $server->getId();
+			return $this->privilegedCertificateAccepted('server ' . $server->getId())
+				? '_server_' . $server->getId() : '';
 		}
 
 		// Check if the DN matches a user's stored certificate subjects
@@ -229,6 +233,75 @@ class X509Backend extends ABackend implements IUserBackend, IApacheBackend, IChe
 	}
 
 	/**
+	 * The client certificate itself, when the web server exports it
+	 * (`SSLOptions +ExportCertData`), or a proxy forwards it. '' otherwise.
+	 */
+	private function getClientCertificate(): string {
+		$srv = $this->request->server ?? $_SERVER;
+		$verify = (string)($srv['SSL_CLIENT_VERIFY'] ?? $srv['REDIRECT_SSL_CLIENT_VERIFY'] ?? '');
+		if ($verify === 'SUCCESS') {
+			foreach (['SSL_CLIENT_CERT', 'REDIRECT_SSL_CLIENT_CERT'] as $k) {
+				if (!empty($srv[$k])) {
+					return (string)$srv[$k];
+				}
+			}
+		}
+		return (string)($this->request->getHeader('SSL-CLIENT-CERT')
+			?: $this->request->getHeader('X-Ssl-Client-Cert')
+			?: '');
+	}
+
+	/**
+	 * Certificates allowed to act as a trusted daemon or as another server, by
+	 * SHA-256, from `trusted_client_fingerprints` in the config file. Empty (the
+	 * default) means the subject DN alone is enough, which is how it has always
+	 * been — but a DN is exactly what a stolen CA key can forge, and these two
+	 * paths impersonate anyone, so a deployment that has the fingerprints to
+	 * hand should list them.
+	 *
+	 * @return list<string>
+	 */
+	private function trustedFingerprints(): array {
+		$raw = $this->config->getSystemValue('trusted_client_fingerprints', '');
+		$list = is_array($raw) ? $raw : explode(',', (string)$raw);
+		$out = [];
+		foreach ($list as $fp) {
+			$fp = strtoupper((string)preg_replace('/[^0-9A-Fa-f]/', '', (string)$fp));
+			if ($fp !== '') {
+				$out[] = $fp;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * For the two paths that authenticate as somebody else — a trusted daemon,
+	 * and another server in the cluster — is the presented certificate one we
+	 * named? Skipped when no list is configured, or when the certificate itself
+	 * did not reach us.
+	 */
+	private function privilegedCertificateAccepted(string $what): bool {
+		$allowed = $this->trustedFingerprints();
+		if ($allowed === []) {
+			return true;
+		}
+		$pem = $this->getClientCertificate();
+		if ($pem === '') {
+			$this->logger->warning('files_sharding: X.509: trusted_client_fingerprints is set but the web '
+				. 'server does not export the certificate (SSLOptions +ExportCertData); allowing ' . $what
+				. ' on the subject name alone');
+			return true;
+		}
+		$fp = CertificateService::fingerprintOf($pem);
+		if ($fp !== '' && in_array($fp, $allowed, true)) {
+			return true;
+		}
+		$this->logger->error('files_sharding: X.509: refusing ' . $what
+			. ' — its certificate (' . ($fp !== '' ? $fp : 'unreadable') . ') is not in trusted_client_fingerprints');
+		return false;
+	}
+
+	/**
 	 * Is this certificate still the one the user currently holds?
 	 *
 	 * The service issues certificates but publishes no revocation list, so the
@@ -253,6 +326,24 @@ class X509Backend extends ABackend implements IUserBackend, IApacheBackend, IChe
 	private function certificateIsCurrent(string $uid, string $dn): bool {
 		if (self::tokenizeDn($dn) !== self::tokenizeDn($this->certificates->issuedDn($uid))) {
 			return true; // not ours — nothing to pin it to
+		}
+		// If the whole certificate reached us, compare the whole certificate.
+		// The serial below is a weaker stand-in: someone holding the CA key can
+		// mint a certificate carrying any subject and any serial, but not one
+		// carrying this user's public key. Needs `SSLOptions +ExportCertData` on
+		// the web server; without it we fall through to the serial.
+		$pem = $this->getClientCertificate();
+		if ($pem !== '') {
+			$presentedFp = CertificateService::fingerprintOf($pem);
+			$currentFp = $this->certificates->currentFingerprint($uid);
+			if ($presentedFp !== '' && $currentFp !== '') {
+				if ($presentedFp === $currentFp) {
+					return true;
+				}
+				$this->logger->warning('files_sharding: X.509: refusing ' . $uid
+					. ' — the certificate presented is not the one the account holds');
+				return false;
+			}
 		}
 		$presented = $this->getClientSerial();
 		if ($presented === '') {

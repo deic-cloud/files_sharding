@@ -160,6 +160,41 @@ class CertificateService {
 	}
 
 	/**
+	 * SHA-256 of the certificate the user currently holds, uppercase hex; ''
+	 * when there is none.
+	 *
+	 * Stronger than the serial, and the difference matters in exactly one case:
+	 * someone holding the CA key can mint a certificate with any subject and any
+	 * serial they like, but not one with the user's public key, because they do
+	 * not have the user's private key. A fingerprint therefore survives a CA
+	 * compromise; a serial does not.
+	 */
+	public function currentFingerprint(string $userId): string {
+		$certFile = $this->certDir($userId) . '/usercert.pem';
+		if (!file_exists($certFile)) {
+			return '';
+		}
+		$digest = openssl_x509_fingerprint((string)file_get_contents($certFile), 'sha256');
+		return $digest === false ? '' : strtoupper($digest);
+	}
+
+	/** SHA-256 of a PEM certificate as presented, uppercase hex; '' if unreadable. */
+	public static function fingerprintOf(string $pem): string {
+		$pem = trim($pem);
+		if ($pem === '') {
+			return '';
+		}
+		// Apache folds the PEM it exports; unfold before parsing.
+		if (!str_contains($pem, "\n")) {
+			$pem = str_replace(['-----BEGIN CERTIFICATE----- ', ' -----END CERTIFICATE-----'],
+				["-----BEGIN CERTIFICATE-----\n", "\n-----END CERTIFICATE-----"], $pem);
+			$pem = (string)preg_replace('/(?<!-)\s+(?!-)/', "\n", $pem);
+		}
+		$digest = openssl_x509_fingerprint($pem, 'sha256');
+		return $digest === false ? '' : strtoupper($digest);
+	}
+
+	/**
 	 * Serials are written differently by everyone who writes them: Apache's
 	 * SSL_CLIENT_M_SERIAL, openssl's `-serial`, and PHP's parser differ in case,
 	 * separators and leading zeros. Compare the number, not the spelling.
