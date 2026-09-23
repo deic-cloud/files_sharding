@@ -19,7 +19,15 @@ return [
 		// Target-node side of the hop for a "require login" public link: validates the
 		// token and records the person as a link VISITOR in the session (no account here)
 		['name' => 'login#ssoVisit',     'url' => '/sso/visit',    'verb' => 'GET'],
+		// Cluster links: <master>/index.php/apps/files_sharding/f/<owner>/<fileid>/<path> — sign
+		// the visitor in (dispatch), then `open` on their own node finds their copy of the file
+		['name' => 'clusterLink#f',    'url' => '/f/{owner}/{fileid}',        'verb' => 'GET', 'postfix' => 'bare'],
+		['name' => 'clusterLink#f',    'url' => '/f/{owner}/{fileid}/{path}', 'verb' => 'GET', 'requirements' => ['path' => '.+']],
+		['name' => 'clusterLink#fid',  'url' => '/fid/{fileid}',              'verb' => 'GET'],
+		['name' => 'clusterLink#open', 'url' => '/open',                      'verb' => 'GET'],
 		// Inter-server calls (no NC session; gated by shared secret)
+		['name' => 'internal#clusterLinkResolve', 'url' => '/internal/cluster-link/resolve', 'verb' => 'POST'],
+		['name' => 'internal#clusterLinkShares',  'url' => '/internal/cluster-link/shares',  'verb' => 'POST'],
 		['name' => 'internal#validateToken', 'url' => '/internal/token/validate',     'verb' => 'POST'],
 		['name' => 'internal#issueToken',    'url' => '/internal/token',             'verb' => 'POST'],
 		['name' => 'internal#updateFree',    'url' => '/internal/servers/{id}/free', 'verb' => 'POST'],

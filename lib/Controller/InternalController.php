@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace OCA\FilesSharding\Controller;
 
+use OCA\FilesSharding\Service\ClusterLinkService;
 use OCA\FilesSharding\Service\GroupShareFanoutService;
 use OCA\FilesSharding\Service\ShareSyncService;
 use OCA\FilesSharding\Service\ShardingService;
@@ -39,6 +40,7 @@ class InternalController extends Controller {
 		private ICloudFederationProviderManager   $cloudFederationProviderManager,
 		private ShareSyncService                  $shareSyncService,
 		private GroupShareFanoutService           $fanout,
+		private ClusterLinkService                $clusterLinks,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -398,5 +400,36 @@ class InternalController extends Controller {
 		}
 		$this->fanout->reconcileGid($gid);
 		return new JSONResponse(['success' => true]);
+	}
+
+	/**
+	 * Cluster link, MASTER: a visitor's node asks where $owner lives and which
+	 * of $owner's shares reaching $recipient cover the file (ClusterLinkService).
+	 */
+	#[PublicPage]
+	#[NoCSRFRequired]
+	public function clusterLinkResolve(string $owner = '', int $fileid = 0, string $path = '', string $recipient = '', string $node = ''): JSONResponse {
+		if ($err = $this->checkSecret()) return $err;
+		if (!$this->shardingService->isMaster()) {
+			return new JSONResponse(['message' => 'Only the master resolves cluster links'], 403);
+		}
+		if (($owner === '' && $node === '') || $recipient === '') {
+			return new JSONResponse(['message' => 'Missing required parameter'], 400);
+		}
+		$answer = $this->clusterLinks->resolve($owner, $fileid, $path, $recipient, $node);
+		return $answer === null
+			? new JSONResponse(['message' => 'Owner not found'], 404)
+			: new JSONResponse($answer);
+	}
+
+	/** Cluster link, OWNER's node: the shares of $owner's that reach $recipient and cover the file. */
+	#[PublicPage]
+	#[NoCSRFRequired]
+	public function clusterLinkShares(string $owner = '', int $fileid = 0, string $path = '', string $recipient = ''): JSONResponse {
+		if ($err = $this->checkSecret()) return $err;
+		if (($owner === '' && $fileid <= 0) || $recipient === '') {
+			return new JSONResponse(['message' => 'Missing required parameter'], 400);
+		}
+		return new JSONResponse(['matches' => $this->clusterLinks->resolveShared($owner, $fileid, $path, $recipient)]);
 	}
 }

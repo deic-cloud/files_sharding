@@ -109,6 +109,8 @@ class Application extends App implements IBootstrap {
 		// homed on another node (the picker offers every cluster user).
 		$context->registerMiddleware(\OCA\FilesSharding\Middleware\TransferOwnershipMiddleware::class, true);
 		$context->registerMiddleware(\OCA\FilesSharding\Middleware\ShareeRecommendationsMiddleware::class, true);
+		// Core internal links (/index.php/f/<id>) opened by someone living on another node
+		$context->registerMiddleware(\OCA\FilesSharding\Middleware\ClusterLinkMiddleware::class, true);
 		$context->registerEventListener(\OCP\BeforeSabrePubliclyLoadedEvent::class, \OCA\FilesSharding\Listener\PublicSabrePluginListener::class);
 		$context->registerEventListener(BeforeTemplateRenderedEvent::class, SudoScriptListener::class);
 		$context->registerEventListener(BeforeTemplateRenderedEvent::class, \OCA\FilesSharding\Listener\HidePasswordChangeListener::class);
