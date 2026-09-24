@@ -70,23 +70,7 @@ class ClusterLinkController extends Controller {
 		if ($owner === '' ? ($fileid <= 0 || $node === '') : ($fileid <= 0 && $path === '')) {
 			return $this->noAccess($owner, $path);
 		}
-		$recipient = $this->links->clusterIdOf($viewer);
-		if ($this->sharding->isMaster()) {
-			$answer = $this->links->resolve($owner, $fileid, $path, $recipient, $node);
-		} else {
-			$data = $this->client->postDirect($this->sharding->masterInternalUrl(), 'internal/cluster-link/resolve', [
-				'owner' => $owner, 'fileid' => $fileid, 'path' => $path, 'recipient' => $recipient, 'node' => $node,
-			]);
-			$answer = (is_array($data) && isset($data['silo'], $data['matches']) && is_array($data['matches']))
-				? ['silo' => (string)$data['silo'], 'matches' => $this->links->cleanMatches($data['matches'])]
-				: null;
-		}
-		$id = null;
-		if ($answer !== null) {
-			$id = $this->sharding->isThisNode($answer['silo'])
-				? $this->links->localFileIdSameNode($viewer, $owner, $fileid, $path)
-				: $this->links->localFileId($viewer, $answer['silo'], $answer['matches']);
-		}
+		$id = $this->links->localIdFor($viewer, $owner, $fileid, $path, $node);
 		if ($id === null) {
 			$this->logger->info("files_sharding: cluster link {$owner}/{$fileid}/{$path}: no copy for {$viewer}", ['app' => 'files_sharding']);
 			return $this->noAccess($owner, $path);

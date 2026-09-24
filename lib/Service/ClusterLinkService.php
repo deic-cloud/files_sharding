@@ -50,6 +50,7 @@ class ClusterLinkService {
 		private IDBConnection   $db,
 		private InterServerClient $client,
 		private IUserMountCache $mountCache,
+		private \OCP\IConfig $config,
 		private LoggerInterface $logger,
 	) {
 	}
@@ -66,6 +67,77 @@ class ClusterLinkService {
 	public function clusterIdOf(string $uid): string {
 		$p = parse_url($this->sharding->masterUrl());
 		return $uid . '@' . strtolower(($p['host'] ?? '') . (isset($p['port']) ? ':' . $p['port'] : ''));
+	}
+
+	// ── Any node: a link, for a user ─────────────────────────────────────────
+
+	/**
+	 * What a file link names: a cluster link (owner, file id, path) or a node's
+	 * own /index.php/f/<id> (file id, and the node it came from). Null for
+	 * anything else.
+	 *
+	 * @return array{owner: string, fileid: int, path: string, node: string}|null
+	 */
+	public function parse(string $url): ?array {
+		$p = parse_url(html_entity_decode($url));
+		if ($p === false) {
+			return null;
+		}
+		$path = (string)($p['path'] ?? '');
+		$origin = isset($p['host'])
+			? ($p['scheme'] ?? 'https') . '://' . $p['host'] . (isset($p['port']) ? ':' . $p['port'] : '')
+			: rtrim((string)$this->config->getSystemValue('overwrite.cli.url', ''), '/');
+		if (preg_match('#/index\.php/apps/files_sharding/f/([^/]+)/(\d+)(?:/(.*))?$#', $path, $m)) {
+			return ['owner' => rawurldecode($m[1]), 'fileid' => (int)$m[2],
+				'path' => implode('/', array_map('rawurldecode', explode('/', trim($m[3] ?? '', '/')))), 'node' => ''];
+		}
+		if (preg_match('#/index\.php/f/(\d+)$#', $path, $m)) {
+			return ['owner' => '', 'fileid' => (int)$m[1], 'path' => '', 'node' => $origin];
+		}
+		return null;
+	}
+
+	/**
+	 * $viewer's own file id for what a link names, wherever owner and viewer
+	 * live — the lookup `open` does for a browser, for server-side callers too
+	 * (e.g. a notes app hashing the files a note links). Null: not theirs to open.
+	 */
+	public function localIdFor(string $viewer, string $owner, int $fileId, string $path, string $node = ''): ?int {
+		$path = trim($path, '/');
+		if ($owner === '' ? ($fileId <= 0 || $node === '') : ($fileId <= 0 && $path === '')) {
+			return null;
+		}
+		$recipient = $this->clusterIdOf($viewer);
+		if ($this->sharding->isMaster()) {
+			$answer = $this->resolve($owner, $fileId, $path, $recipient, $node);
+		} else {
+			$data = $this->client->postDirect($this->sharding->masterInternalUrl(), 'internal/cluster-link/resolve', [
+				'owner' => $owner, 'fileid' => $fileId, 'path' => $path, 'recipient' => $recipient, 'node' => $node,
+			]);
+			$answer = (is_array($data) && isset($data['silo'], $data['matches']) && is_array($data['matches']))
+				? ['silo' => (string)$data['silo'], 'matches' => $this->cleanMatches($data['matches'])]
+				: null;
+		}
+		if ($answer === null) {
+			return null;
+		}
+		return $this->sharding->isThisNode($answer['silo'])
+			? $this->localFileIdSameNode($viewer, $owner, $fileId, $path)
+			: $this->localFileId($viewer, $answer['silo'], $answer['matches']);
+	}
+
+	/** $viewer's own node for a file link, or null. */
+	public function nodeForLink(string $viewer, string $url): ?Node {
+		$l = $this->parse($url);
+		if ($l === null) {
+			return null;
+		}
+		$id = $this->localIdFor($viewer, $l['owner'], $l['fileid'], $l['path'], $l['node']);
+		if ($id === null) {
+			return null;
+		}
+		\OC_Util::setupFS($viewer);
+		return $this->rootFolder->getUserFolder($viewer)->getFirstNodeById($id);
 	}
 
 	// ── Master ───────────────────────────────────────────────────────────────
