@@ -28,6 +28,8 @@ return [
 		// Inter-server calls (no NC session; gated by shared secret)
 		['name' => 'internal#clusterLinkResolve', 'url' => '/internal/cluster-link/resolve', 'verb' => 'POST'],
 		['name' => 'internal#clusterLinkShares',  'url' => '/internal/cluster-link/shares',  'verb' => 'POST'],
+		['name' => 'internal#clusterLinkOwnerFile',      'url' => '/internal/cluster-link/owner-file',       'verb' => 'POST'],
+		['name' => 'internal#clusterLinkOwnerFileLocal', 'url' => '/internal/cluster-link/owner-file-local', 'verb' => 'POST'],
 		['name' => 'internal#validateToken', 'url' => '/internal/token/validate',     'verb' => 'POST'],
 		['name' => 'internal#issueToken',    'url' => '/internal/token',             'verb' => 'POST'],
 		['name' => 'internal#updateFree',    'url' => '/internal/servers/{id}/free', 'verb' => 'POST'],

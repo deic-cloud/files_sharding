@@ -136,6 +136,78 @@ class ClusterLinkService {
 		return $out;
 	}
 
+	/**
+	 * Recipient's node: the cluster link for a file inside a share $viewer
+	 * received from another node, naming the file as its OWNER has it, so the
+	 * link works for everyone the owner shared it with — not just $viewer.
+	 * $mountPoint is the share's mount point in $viewer's files ('/Notes/X'),
+	 * $subpath the file's path inside it. Null when the owner's node cannot say.
+	 */
+	public function linkForReceived(string $viewer, string $mountPoint, string $subpath): ?string {
+		$qb = $this->db->getQueryBuilder();
+		$qb->select('owner', 'remote_id')
+			->from('share_external')
+			->where($qb->expr()->eq('user', $qb->createNamedParameter($viewer)))
+			->andWhere($qb->expr()->eq('mountpoint_hash', $qb->createNamedParameter(md5('/' . trim($mountPoint, '/')))))
+			->andWhere($qb->expr()->eq('accepted', $qb->createNamedParameter(1, \OCP\DB\QueryBuilder\IQueryBuilder::PARAM_INT)));
+		$row = $qb->executeQuery()->fetch();
+		if (!$row) {
+			return null;
+		}
+		$body = ['owner' => (string)$row['owner'], 'share_id' => (string)$row['remote_id'],
+			'subpath' => trim($subpath, '/'), 'recipient' => $this->clusterIdOf($viewer)];
+		$data = $this->sharding->isMaster()
+			? $this->ownerFileOnBehalf($body)
+			: $this->client->postDirect($this->sharding->masterInternalUrl(), 'internal/cluster-link/owner-file', $body);
+		if (!is_array($data) || empty($data['owner']) || !isset($data['fileid'], $data['path'])) {
+			return null;
+		}
+		return $this->linkFor((string)$data['owner'], (int)$data['fileid'], (string)$data['path']);
+	}
+
+	/** Master: forward an owner-file question to the owner's node (or answer it, when that is us). */
+	public function ownerFileOnBehalf(array $body): ?array {
+		$server = $this->sharding->getUserServer((string)($body['owner'] ?? ''));
+		if ($server === null || $this->sharding->isSelf($server)) {
+			return $this->ownerFile((string)$body['owner'], (string)$body['share_id'], (string)$body['subpath'], (string)$body['recipient']);
+		}
+		$data = $this->client->postDirect($this->sharding->apiUrlForServer($server), 'internal/cluster-link/owner-file-local', $body);
+		return is_array($data) ? $data : null;
+	}
+
+	/**
+	 * Owner's node: the file at $subpath inside $owner's share $shareId, as the
+	 * owner has it — only if that share really goes to $recipient.
+	 *
+	 * @return array{owner: string, fileid: int, path: string}|null
+	 */
+	public function ownerFile(string $owner, string $shareId, string $subpath, string $recipient): ?array {
+		if (!preg_match('/^\d+$/', $shareId) || in_array('..', explode('/', $subpath), true)) {
+			return null;
+		}
+		try {
+			$share = $this->shareManager->getShareById('ocFederatedSharing:' . $shareId);
+		} catch (\Throwable) {
+			return null;
+		}
+		if (strcasecmp((string)$share->getSharedWith(), $recipient) !== 0
+			|| strcasecmp((string)$share->getShareOwner(), $owner) !== 0) {
+			return null;
+		}
+		try {
+			\OC_Util::setupFS($owner);
+			$node = $share->getNode();
+			if ($subpath !== '') {
+				$node = $node->get($subpath);
+			}
+			$ownerFolder = $this->rootFolder->getUserFolder($owner);
+			$path = $ownerFolder->getRelativePath($node->getPath());
+		} catch (\Throwable) {
+			return null;
+		}
+		return $path === null ? null : ['owner' => $owner, 'fileid' => (int)$node->getId(), 'path' => ltrim($path, '/')];
+	}
+
 	// ── Owner's silo ─────────────────────────────────────────────────────────
 
 	/**

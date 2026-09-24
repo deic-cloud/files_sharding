@@ -193,7 +193,10 @@ resolved through the master:
   segment and optional. The file id finds the file after a rename. The path
   finds it after the owner has been moved to another node, which gives every
   file a new id. The link fails only if both have happened.
-  `ClusterLinkService::linkFor($owner, $fileId, $path)` builds it.
+  `ClusterLinkService::linkFor($owner, $fileId, $path)` builds it;
+  `linkForReceived($viewer, $mountPoint, $subpath)` builds it for a file in a
+  share the viewer received from another node, naming the owner's copy (the
+  owner's node supplies id and path), so a sharee's link works for others too.
 - **`fid/<fileid>?node=…`** is not written by anyone. `ClusterLinkMiddleware`
   sends a visitor here when they open a node's own `/index.php/f/<id>` without a
   session on that node, so a pasted *Internal link* works too. It carries no
@@ -309,6 +312,8 @@ Called node-to-node; no Nextcloud session required.
 | `POST` | `/internal/users/{userId}/delete` | Propagate user deletion |
 | `POST` | `/internal/cluster-link/resolve` | File links: where the owner lives + the owner node's answer (visitor's node→master) |
 | `POST` | `/internal/cluster-link/shares` | File links: the owner's remote shares to a recipient that cover a file, with the file's path inside each (master→owner's node) |
+| `POST` | `/internal/cluster-link/owner-file` | File links: a file inside a received share, as its owner has it (recipient's node→master) |
+| `POST` | `/internal/cluster-link/owner-file-local` | Same, answered by the owner's node after checking the share goes to that recipient (master→owner's node) |
 
 ## Documentation
 

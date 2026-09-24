@@ -422,6 +422,27 @@ class InternalController extends Controller {
 			: new JSONResponse($answer);
 	}
 
+	/** Cluster link for a file in a received share, MASTER: forwards to the owner's node. */
+	#[PublicPage]
+	#[NoCSRFRequired]
+	public function clusterLinkOwnerFile(string $owner = '', string $share_id = '', string $subpath = '', string $recipient = ''): JSONResponse {
+		if ($err = $this->checkSecret()) return $err;
+		if (!$this->shardingService->isMaster()) {
+			return new JSONResponse(['message' => 'Only the master resolves cluster links'], 403);
+		}
+		$data = $this->clusterLinks->ownerFileOnBehalf(['owner' => $owner, 'share_id' => $share_id, 'subpath' => $subpath, 'recipient' => $recipient]);
+		return $data === null ? new JSONResponse(['message' => 'Not found'], 404) : new JSONResponse($data);
+	}
+
+	/** Cluster link for a file in a received share, OWNER's node: the file as the owner has it. */
+	#[PublicPage]
+	#[NoCSRFRequired]
+	public function clusterLinkOwnerFileLocal(string $owner = '', string $share_id = '', string $subpath = '', string $recipient = ''): JSONResponse {
+		if ($err = $this->checkSecret()) return $err;
+		$data = $this->clusterLinks->ownerFile($owner, $share_id, $subpath, $recipient);
+		return $data === null ? new JSONResponse(['message' => 'Not found'], 404) : new JSONResponse($data);
+	}
+
 	/** Cluster link, OWNER's node: the shares of $owner's that reach $recipient and cover the file. */
 	#[PublicPage]
 	#[NoCSRFRequired]
