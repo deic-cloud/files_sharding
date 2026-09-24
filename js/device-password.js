@@ -31,7 +31,23 @@
 		}
 	}
 
+	// Above the form: what to type into a WebDAV / sync client, username raw.
+	function injectInfo(form) {
+		if (!window.FilesShardingWebDav || document.getElementById('fsh-webdav-security')) return;
+		var i = window.FilesShardingWebDav.info();
+		var box = document.createElement('div');
+		box.id = 'fsh-webdav-security';
+		box.className = 'fsh-webdav';
+		var p = document.createElement('p');
+		p.textContent = t('files_sharding', 'For WebDAV and sync clients (curl, Cyberduck, the desktop client), use this server and username, with a device password created below:');
+		box.appendChild(p);
+		box.appendChild(window.FilesShardingWebDav.copyRow(t('files_sharding', 'Server'), i.url));
+		box.appendChild(window.FilesShardingWebDav.copyRow(t('files_sharding', 'Username'), i.user));
+		form.parentNode.insertBefore(box, form);
+	}
+
 	function inject(form) {
+		injectInfo(form);
 		if (form.querySelector('#' + FIELD_ID)) return;
 		var nameField = form.querySelector('input');
 		var button = form.querySelector('button[type="submit"]');
@@ -111,7 +127,8 @@
 				return data.ocs.data;
 			});
 		}).then(function (created) {
-			toast(t('files_sharding', 'Device password "{name}" created. Use it with your username.', { name: created.name }, undefined, { escape: false }));
+			var user = (OC.getCurrentUser && OC.getCurrentUser() && OC.getCurrentUser().uid) || '';
+			toast(t('files_sharding', 'Device password "{name}" created. Use it with your username {user}.', { name: created.name, user: user }, undefined, { escape: false }));
 			input.value = '';
 			if (nameField) nameField.value = '';
 			// The list of devices is Vue state we cannot reach; a reload shows the new entry.

@@ -256,6 +256,8 @@ a no-op under PHP-FPM.
 
 ### WebDAV
 
+**Where users find it.** Two places say plainly what a WebDAV client needs — server, username (raw, never URL-encoded) and that the password is a device password: the Files app's settings, where our section replaces core's WebDAV section (`js/webdav-settings.js` through the Files settings API; core's section and its navigation entry hidden by `css/webdav-settings.css`), and the Security page above *Create new app password* (`js/device-password.js`). System values: `files_sharding_webdav_url` — the address shown, a path like `/files/` (the image's rewrite) or a full URL; unset shows core's `/remote.php/dav/files/<user>/` — and `files_sharding_webdav_docs_url` — the deployment's guide, linked instead of Nextcloud's mounting guide. (`WebDavInfoListener` provides both as initial state.)
+
 The desktop sync client and WebDAV clients need the **silo URL**, not the master URL. Nextcloud's own WebDAV client follows the `X-NC-SiloURL` header set on redirect; generic WebDAV clients must be pointed at the silo directly.
 
 ### Federation

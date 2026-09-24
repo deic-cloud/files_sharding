@@ -115,6 +115,9 @@ class Application extends App implements IBootstrap {
 		$context->registerEventListener(BeforeTemplateRenderedEvent::class, SudoScriptListener::class);
 		$context->registerEventListener(BeforeTemplateRenderedEvent::class, \OCA\FilesSharding\Listener\HidePasswordChangeListener::class);
 		$context->registerEventListener(BeforeTemplateRenderedEvent::class, \OCA\FilesSharding\Listener\TransferHintScriptListener::class);
+		// How to reach your files over WebDAV: Files settings + Security page
+		$context->registerEventListener(\OCA\Files\Event\LoadAdditionalScriptsEvent::class, \OCA\FilesSharding\Listener\WebDavInfoListener::class);
+		$context->registerEventListener(BeforeTemplateRenderedEvent::class, \OCA\FilesSharding\Listener\WebDavInfoListener::class);
 		$context->registerEventListener(BeforeLoginTemplateRenderedEvent::class, SudoScriptListener::class);
 	}
 

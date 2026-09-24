@@ -1,0 +1,11 @@
+/* Files settings: core's WebDAV section is replaced by ours (js/webdav-settings.js). */
+#settings-section_webdav, a[href="#settings-section_webdav"] { display: none !important; }
+.fsh-webdav h3 { margin: 0 0 6px; font-weight: bold; }
+.fsh-webdav p { margin: 6px 0; }
+.fsh-webdav .fsh-webdav-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.fsh-webdav .fsh-webdav-label { flex: 0 0 80px; color: var(--color-text-maxcontrast); }
+.fsh-webdav .fsh-webdav-value { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; background: var(--color-background-dark); padding: 4px 8px; border-radius: var(--border-radius); }
+.fsh-webdav .fsh-webdav-copy { flex: 0 0 auto; }
+.fsh-webdav .fsh-webdav-note { color: var(--color-text-maxcontrast); }
+.fsh-webdav .fsh-webdav-example { margin: 8px 0; padding: 6px 8px; background: var(--color-background-dark); border-radius: var(--border-radius); white-space: pre-wrap; overflow-wrap: anywhere; font-size: .9em; }
+.fsh-webdav a { text-decoration: underline; }
