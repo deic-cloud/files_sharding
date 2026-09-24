@@ -174,6 +174,51 @@ controllers; `appinfo/public.php` probes the same way for anonymous DAV), so
 links keep working when users are moved between nodes. Initial state
 `files_sharding.master_url` feeds the popup.
 
+### File links that work across nodes
+
+Nextcloud's *Internal link* (`/index.php/f/<fileid>`, from the sharing
+sidebar) names a file id that exists only on the owner's node. Someone who lives
+on another node has no session there, so core sends them to that node's login
+page, where they cannot sign in. files_sharding adds two link forms, both
+resolved through the master:
+
+```
+<master>/index.php/apps/files_sharding/f/<owner>/<fileid>/<path>
+<master>/index.php/apps/files_sharding/fid/<fileid>?node=<owner's node URL>
+```
+
+- **`f/<owner>/<fileid>/<path>`, the cluster link.** This is the form to write
+  into documents and notes (e.g. a lab notebook linking its data). `<owner>` is
+  the uid and `<path>` the file's path in the owner's files, URL-encoded per
+  segment and optional. The file id finds the file after a rename. The path
+  finds it after the owner has been moved to another node, which gives every
+  file a new id. The link fails only if both have happened.
+  `ClusterLinkService::linkFor($owner, $fileId, $path)` builds it.
+- **`fid/<fileid>?node=…`** is not written by anyone. `ClusterLinkMiddleware`
+  sends a visitor here when they open a node's own `/index.php/f/<id>` without a
+  session on that node, so a pasted *Internal link* works too. It carries no
+  owner or path, so trying ids tells an anonymous caller nothing about users or
+  files.
+
+How a link resolves, for bob opening a file of alice's:
+
+1. The master (`ClusterLinkController::f` / `fid`) sends bob through
+   `dispatch`, which signs him in and lands him on his own node at `open`.
+2. Bob's node asks the master (`internal/cluster-link/resolve`). The master
+   looks up alice's node in its registry and asks it
+   (`internal/cluster-link/shares`) which of alice's remote shares to
+   `bob@<master>` contain the file, and where the file sits in each. Only the
+   master knows where users live, so no node takes a server address from the
+   browser.
+3. Bob's node maps each answer (alice's node + share id) through its own
+   `oc_share_external` rows to bob's copy of the share, and redirects him to
+   `/index.php/f/<his file id>`. If owner and visitor live on the same node, core
+   finds the file directly. Otherwise bob gets a plain "not shared with you"
+   page (404) that names no files.
+
+Known gap: a visitor who already has a session on the owner's node (e.g. from
+an SSO hop) is not redirected, and sees core's own "not found".
+
 ### "Require login" on public links + access audit
 
 The *Public link* popup has a **Require login** checkbox (share attribute
@@ -262,6 +307,8 @@ Called node-to-node; no Nextcloud session required.
 | `POST` | `/internal/shares/live-ids` | Liveness batch: which of these share ids does this silo still serve? (master's share-authority reconcile) |
 | `POST` | `/internal/users/{userId}/update` | Propagate user changes |
 | `POST` | `/internal/users/{userId}/delete` | Propagate user deletion |
+| `POST` | `/internal/cluster-link/resolve` | File links: where the owner lives + the owner node's answer (visitor's node→master) |
+| `POST` | `/internal/cluster-link/shares` | File links: the owner's remote shares to a recipient that cover a file, with the file's path inside each (master→owner's node) |
 
 ## Documentation
 
