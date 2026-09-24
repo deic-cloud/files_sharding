@@ -6,10 +6,12 @@ namespace OCA\FilesSharding\Listener;
 
 use OCA\DAV\Events\SabrePluginAddEvent;
 use OCA\FilesSharding\DAV\FolderFilterPlugin;
+use OCA\FilesSharding\DAV\HomeRedirectPlugin;
 use OCA\FilesSharding\Service\ShardingService;
 use OCP\EventDispatcher\Event;
 use OCP\EventDispatcher\IEventListener;
 use OCP\IRequest;
+use OCP\IUserManager;
 use OCP\IUserSession;
 use Psr\Log\LoggerInterface;
 
@@ -19,6 +21,7 @@ class SabrePluginListener implements IEventListener {
 		private ShardingService $shardingService,
 		private IRequest        $request,
 		private IUserSession    $userSession,
+		private IUserManager    $userManager,
 		private LoggerInterface $logger,
 	) {
 	}
@@ -29,6 +32,10 @@ class SabrePluginListener implements IEventListener {
 		}
 		$event->getServer()->addPlugin(
 			new FolderFilterPlugin($this->shardingService, $this->request, $this->userSession, $this->logger)
+		);
+		// Master: a silo user's WebDAV client is sent to their home silo.
+		$event->getServer()->addPlugin(
+			new HomeRedirectPlugin($this->shardingService, $this->userManager, $this->request, $this->logger)
 		);
 	}
 }
