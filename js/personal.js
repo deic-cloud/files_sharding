@@ -33,8 +33,8 @@ async function loadFolders() {
     const locked   = f.locked_by && f.locked_by !== '';
     const cbAttrs  = locked ? `${checked} disabled title="Set by ${e(f.locked_by)}"` : `${checked} data-id="${f.id}" class="fsh-hide-toggle" title="Hide from sync clients (mirall / ownCloud desktop)"`;
     const delCell  = locked
-      ? `<td><span title="Managed by ${e(f.locked_by)}" style="opacity:.45;cursor:default">🔒</span></td>`
-      : `<td><button data-id="${f.id}" class="fsh-del-folder" type="button" title="Remove">🗑️</button></td>`;
+      ? `<td><span class="icon-password" role="img" aria-label="Managed by ${e(f.locked_by)}" title="Managed by ${e(f.locked_by)}" style="display:inline-block;width:34px;height:34px;opacity:.5;background-position:center;cursor:default"></span></td>`
+      : `<td><button data-id="${f.id}" class="fsh-del-folder button icon-delete" type="button" title="Remove" aria-label="Remove"></button></td>`;
     tr.innerHTML = `
       <td><code>${e(f.folder)}</code></td>
       <td>${e(f.only_from || '(any)')}</td>
@@ -94,7 +94,7 @@ async function loadDns() {
   dns.forEach(entry => {
     const li = document.createElement('li');
     li.innerHTML = '<code>' + e(entry.dn) + '</code>'
-      + '<button data-index="' + entry.index + '" class="fsh-del-dn" type="button" title="Remove">🗑️</button>';
+      + '<button data-index="' + entry.index + '" class="fsh-del-dn button icon-delete" type="button" title="Remove" aria-label="Remove"></button>';
     ul.appendChild(li);
   });
 }
