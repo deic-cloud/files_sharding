@@ -33,7 +33,7 @@ async function loadFolders() {
     const locked   = f.locked_by && f.locked_by !== '';
     const cbAttrs  = locked ? `${checked} disabled title="Set by ${e(f.locked_by)}"` : `${checked} data-id="${f.id}" class="fsh-hide-toggle" title="Hide from sync clients (mirall / ownCloud desktop)"`;
     const delCell  = locked
-      ? `<td><span class="icon-password" role="img" aria-label="Managed by ${e(f.locked_by)}" title="Managed by ${e(f.locked_by)}" style="display:inline-block;width:34px;height:34px;opacity:.5;background-position:center;cursor:default"></span></td>`
+      ? `<td><button type="button" class="button icon-password" disabled aria-label="Managed by ${e(f.locked_by)}" title="Managed by ${e(f.locked_by)}" style="cursor:default"></button></td>`
       : `<td><button data-id="${f.id}" class="fsh-del-folder button icon-delete" type="button" title="Remove" aria-label="Remove"></button></td>`;
     tr.innerHTML = `
       <td><code>${e(f.folder)}</code></td>
