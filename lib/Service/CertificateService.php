@@ -264,6 +264,25 @@ class CertificateService {
 		return $pem;
 	}
 
+	/**
+	 * The certificate's RSA key as an OpenSSH public key line ("ssh-rsa AAAA… <comment>"),
+	 * or '' — the id_rsa.pub of the old service: the same key serves SSH (pods,
+	 * SFTP) as the X.509 certificate, so there is nothing extra to generate.
+	 */
+	public function getSshPublicKey(string $userId, string $comment = ''): string {
+		$pem = $this->getKeyPem($userId);
+		$key = $pem !== '' ? openssl_pkey_get_private($pem) : false;
+		$d = $key !== false ? openssl_pkey_get_details($key) : false;
+		if (!is_array($d) || ($d['type'] ?? null) !== OPENSSL_KEYTYPE_RSA) {
+			return '';
+		}
+		$str = static fn (string $s): string => pack('N', strlen($s)) . $s;
+		// SSH mpint: big-endian, with a leading zero byte when the top bit is set.
+		$mpint = static fn (string $b): string => $str((ord($b[0]) & 0x80) ? "\0" . $b : $b);
+		$blob = $str('ssh-rsa') . $mpint($d['rsa']['e']) . $mpint($d['rsa']['n']);
+		return 'ssh-rsa ' . base64_encode($blob) . ($comment !== '' ? ' ' . $comment : '') . "\n";
+	}
+
 	/** Returns the certificate as PEM, or empty string if none exists. */
 	public function getCertPem(string $userId): string {
 		$certFile = $this->certDir($userId) . '/usercert.pem';

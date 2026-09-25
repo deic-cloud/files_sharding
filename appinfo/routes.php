@@ -50,6 +50,9 @@ return [
 		['name' => 'x509#downloadCert',   'url' => '/x509/cert',   'verb' => 'GET'],
 		['name' => 'x509#downloadKey',    'url' => '/x509/key',    'verb' => 'GET'],
 		['name' => 'x509#downloadPkcs12', 'url' => '/x509/pkcs12', 'verb' => 'GET'],
+		// The same key for SSH (old service: id_rsa / id_rsa.pub next to cert/key/p12)
+		['name' => 'x509#downloadIdRsa',    'url' => '/x509/id_rsa',     'verb' => 'GET'],
+		['name' => 'x509#downloadIdRsaPub', 'url' => '/x509/id_rsa.pub', 'verb' => 'GET'],
 		// VO membership: group -> newline-separated member X.509 DNs (batch/GridFactory).
 		// The silo Apache config rewrites /vos/<group> to this route.
 		['name' => 'vo#members', 'url' => '/vos/{gid}', 'verb' => 'GET'],

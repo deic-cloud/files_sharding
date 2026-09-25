@@ -72,6 +72,33 @@ class X509Controller extends Controller {
 		return new DataDownloadResponse($pem, 'usercert.pem', 'application/x-pem-file');
 	}
 
+	/** The certificate's key as an SSH private key (same key, the name ssh expects). */
+	#[NoAdminRequired]
+	#[NoCSRFRequired]
+	public function downloadIdRsa(): Response {
+		$pem = $this->certificateService->getKeyPem($this->userSession->getUser()?->getUID() ?? '');
+		if ($pem === '') {
+			$r = new Response();
+			$r->setStatus(404);
+			return $r;
+		}
+		return new DataDownloadResponse($pem, 'id_rsa', 'application/x-pem-file');
+	}
+
+	/** The matching OpenSSH public key, for authorized_keys. */
+	#[NoAdminRequired]
+	#[NoCSRFRequired]
+	public function downloadIdRsaPub(): Response {
+		$uid = $this->userSession->getUser()?->getUID() ?? '';
+		$pub = $this->certificateService->getSshPublicKey($uid, $uid);
+		if ($pub === '') {
+			$r = new Response();
+			$r->setStatus(404);
+			return $r;
+		}
+		return new DataDownloadResponse($pub, 'id_rsa.pub', 'text/plain');
+	}
+
 	#[NoAdminRequired]
 	#[NoCSRFRequired]
 	public function downloadKey(string $user = ''): Response {
