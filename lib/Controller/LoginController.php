@@ -171,6 +171,16 @@ class LoginController extends Controller {
 			return new TemplateResponse('files_sharding', 'login_error', ['message' => 'Missing token or user', 'login_url' => $masterLogoutUrl], 'guest');
 		}
 
+		// Already logged in here as that very user (e.g. a cluster link clicked in
+		// one's own notebook): go straight on. Logging in again would start a new
+		// session and invalidate the request token of every page already open in
+		// other tabs — their next request (the file picker, a save) then gets 401.
+		$current = $this->userSession->getUser();
+		if ($current !== null && strcasecmp($current->getUID(), $user) === 0) {
+			$safe = ($return !== '' && str_starts_with($return, '/') && !str_starts_with($return, '//')) ? $return : '';
+			return new RedirectResponse($safe !== '' ? $safe : $this->urlGenerator->linkToDefaultPageUrl());
+		}
+
 		if ($this->shardingService->isMaster()) {
 			// The master is a valid exchange target too (cluster SSO hop: a
 			// silo-homed user landing on a master-hosted website — see ssoIssue).
