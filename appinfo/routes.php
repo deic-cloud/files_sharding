@@ -25,6 +25,8 @@ return [
 		['name' => 'clusterLink#f',    'url' => '/f/{owner}/{fileid}/{path}', 'verb' => 'GET', 'requirements' => ['path' => '.+']],
 		['name' => 'clusterLink#fid',  'url' => '/fid/{fileid}',              'verb' => 'GET'],
 		['name' => 'clusterLink#open', 'url' => '/open',                      'verb' => 'GET'],
+		// Infrastructure lookups from the trusted infra net (no session; gated by source address)
+		['name' => 'trustedNet#userServer', 'url' => '/trusted/user-server', 'verb' => 'GET'],
 		// Inter-server calls (no NC session; gated by shared secret)
 		['name' => 'internal#clusterLinkResolve', 'url' => '/internal/cluster-link/resolve', 'verb' => 'POST'],
 		['name' => 'internal#clusterLinkShares',  'url' => '/internal/cluster-link/shares',  'verb' => 'POST'],
