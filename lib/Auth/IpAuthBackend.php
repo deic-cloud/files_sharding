@@ -62,8 +62,27 @@ class IpAuthBackend extends ABackend implements IUserBackend, IApacheBackend {
 		return $this->resolveUser() !== '';
 	}
 
+	/**
+	 * Core calls this when it logs the request in through this backend. For a
+	 * container the session is then also marked as authenticated to WebDAV —
+	 * what core's WebDAV login does after a password login. Otherwise a WebDAV
+	 * client that keeps the session cookie (e.g. the Jupyter storage provider)
+	 * is logged in by that cookie on its next request, but not "DAV
+	 * authenticated", so core demands a CSRF token for PROPFIND/PUT/… and
+	 * refuses with "CSRF check not passed". The key is core's
+	 * OCA\DAV\Connector\Sabre\Auth::DAV_AUTHENTICATED, spelled out so this app
+	 * does not depend on dav's classes.
+	 */
 	public function getCurrentUserId(): string {
-		return $this->resolveUser();
+		$uid = $this->resolveUser();
+		if ($uid !== '') {
+			try {
+				\OCP\Server::get(\OCP\ISession::class)->set('AUTHENTICATED_TO_DAV_BACKEND', $uid);
+			} catch (\Throwable) {
+				// no session (CLI) — nothing to mark
+			}
+		}
+		return $uid;
 	}
 
 	public function getLogoutUrl(): string {
