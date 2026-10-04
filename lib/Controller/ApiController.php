@@ -492,6 +492,7 @@ class ApiController extends OCSController {
 		// with the instance secret, so this happens after a secret change); the
 		// certificate is then unusable until regenerated.
 		$info['key_ok'] = $this->certificateService->getKeyPem($userId) !== '';
+		$info['ca_name'] = $this->certificateService->caName();
 		return new DataResponse(array_merge(['exists' => true], $info));
 	}
 

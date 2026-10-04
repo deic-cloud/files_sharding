@@ -215,6 +215,17 @@ class CertificateService {
 		return $hex === '' ? '0' : $hex;
 	}
 
+	/** The CA's name (its certificate's CN, else O), '' if no CA certificate is configured. */
+	public function caName(): string {
+		$path = $this->config->getSystemValueString('my_ca_certificate', '');
+		if ($path === '' || !is_readable($path)) {
+			return '';
+		}
+		$parsed = openssl_x509_parse((string)file_get_contents($path));
+		$subject = is_array($parsed) ? ($parsed['subject'] ?? []) : [];
+		return (string)($subject['CN'] ?? $subject['O'] ?? '');
+	}
+
 	public function getCertInfo(string $userId): ?array {
 		$certFile = $this->certDir($userId) . '/usercert.pem';
 		if (!file_exists($certFile)) {

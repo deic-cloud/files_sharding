@@ -148,8 +148,7 @@ function renderCertInfo(info) {
       <a class="button" href="${certBase}/x509/id_rsa" download="id_rsa" title="The same key, for ssh (chmod 600)">Download SSH key (id_rsa)</a>
       <a class="button" href="${certBase}/x509/id_rsa.pub" download="id_rsa.pub" title="Paste into authorized_keys, e.g. in a pod">Download SSH public key (id_rsa.pub)</a>
     </div>
-    <p class="fsh-cert-ca">The service's CA certificate signed yours. A client that checks connections made with your
-      certificate needs it, e.g. a database client connecting to a container.</p>
+    <p class="fsh-cert-ca">Your personal certificate is signed by the ${info.ca_name ? e(info.ca_name) + ' ' : ''}certificate authority (CA).</p>
     <div class="fsh-cert-downloads">
       <a class="button" href="${certBase}/x509/ca" download="ca_cert.pem">Download the CA certificate (PEM)</a>
     </div>`;
@@ -170,7 +169,7 @@ document.getElementById('fsh-cert-generate').addEventListener('click', async () 
   btn.disabled = false;
   btn.textContent = 'Generate certificate';
   if (r.ocs?.meta?.status === 'ok') {
-    renderCertInfo(Object.assign({ exists: true }, r.ocs.data));
+    await loadCertInfo();
     status('Certificate generated.', true);
   } else {
     status(r.ocs?.meta?.message || 'Certificate generation failed', false);
