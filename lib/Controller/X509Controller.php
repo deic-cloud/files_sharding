@@ -72,6 +72,24 @@ class X509Controller extends Controller {
 		return new DataDownloadResponse($pem, 'usercert.pem', 'application/x-pem-file');
 	}
 
+	/**
+	 * The certificate of the CA that signs users' certificates (system config
+	 * my_ca_certificate) — public; needed to verify connections that use those
+	 * certificates, e.g. to a database in a container.
+	 */
+	#[NoAdminRequired]
+	#[NoCSRFRequired]
+	public function downloadCa(): Response {
+		$path = $this->config->getSystemValueString('my_ca_certificate', '');
+		$pem = ($path !== '' && is_readable($path)) ? (string)file_get_contents($path) : '';
+		if (!str_contains($pem, 'BEGIN CERTIFICATE')) {
+			$r = new Response();
+			$r->setStatus(404);
+			return $r;
+		}
+		return new DataDownloadResponse($pem, 'ca_cert.pem', 'application/x-pem-file');
+	}
+
 	/** The certificate's key as an SSH private key (same key, the name ssh expects). */
 	#[NoAdminRequired]
 	#[NoCSRFRequired]
