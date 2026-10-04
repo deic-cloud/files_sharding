@@ -82,5 +82,6 @@ Use it for passwordless WebDAV login (add its DN above) or HTTPS client authenti
 #fsh-dns li code { flex:1; font-size:.9em; word-break:break-all; }
 #fsh-cert-info dl { display:grid; grid-template-columns:max-content 1fr; gap:.2em .8em; margin:0; }
 #fsh-cert-info dt { font-weight:bold; }
-#fsh-cert-info .fsh-cert-downloads { margin-top:.4em; display:flex; gap:.5em; }
+#fsh-cert-info .fsh-cert-downloads { margin-top:.4em; display:flex; flex-wrap:wrap; gap:.5em; }
+#fsh-cert-info .fsh-cert-ca { margin:1.2em 0 0; max-width:70ch; color:var(--color-text-maxcontrast); }
 </style>

@@ -145,9 +145,13 @@ function renderCertInfo(info) {
       <a class="button" href="${certBase}/x509/cert" download="usercert.pem">Download certificate (PEM)</a>
       <a class="button" href="${certBase}/x509/key"  download="userkey.pem">Download private key (PEM)</a>
       <a class="button" href="${certBase}/x509/pkcs12" download="usercert.p12">Download PKCS#12</a>
-      <a class="button" href="${certBase}/x509/ca" download="ca_cert.pem" title="The certificate of the authority that signed yours - to verify connections that use it">Download CA certificate (PEM)</a>
       <a class="button" href="${certBase}/x509/id_rsa" download="id_rsa" title="The same key, for ssh (chmod 600)">Download SSH key (id_rsa)</a>
       <a class="button" href="${certBase}/x509/id_rsa.pub" download="id_rsa.pub" title="Paste into authorized_keys, e.g. in a pod">Download SSH public key (id_rsa.pub)</a>
+    </div>
+    <p class="fsh-cert-ca">The service's CA certificate signed yours. A client that checks connections made with your
+      certificate needs it, e.g. a database client connecting to a container.</p>
+    <div class="fsh-cert-downloads">
+      <a class="button" href="${certBase}/x509/ca" download="ca_cert.pem">Download the CA certificate (PEM)</a>
     </div>`;
   del.style.display = '';
 }
