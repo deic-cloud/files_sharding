@@ -10,6 +10,7 @@ use OCP\IAppConfig;
 use OCP\IConfig;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
+use OCP\AppFramework\Http\Attribute\PublicPage;
 use OCP\AppFramework\Http\DataDownloadResponse;
 use OCP\AppFramework\Http\Response;
 use OCP\IRequest;
@@ -75,9 +76,10 @@ class X509Controller extends Controller {
 	/**
 	 * The certificate of the CA that signs users' certificates (system config
 	 * my_ca_certificate) — public; needed to verify connections that use those
-	 * certificates, e.g. to a database in a container.
+	 * certificates, e.g. to a database in a container. Public, as on the old
+	 * service (the old URL /my_ca_cert.pem redirects here).
 	 */
-	#[NoAdminRequired]
+	#[PublicPage]
 	#[NoCSRFRequired]
 	public function downloadCa(): Response {
 		$path = $this->config->getSystemValueString('my_ca_certificate', '');
