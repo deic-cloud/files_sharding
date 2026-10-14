@@ -133,7 +133,7 @@ class RedirectMiddleware extends Middleware {
 			. '?token=' . urlencode($token)
 			. '&user='  . urlencode($userId);
 
-		$this->logger->warning("files_sharding: RedirectMiddleware: redirecting {$userId} → {$redirectUrl}");
+		$this->logger->info("files_sharding: RedirectMiddleware: redirecting {$userId} → " . preg_replace('/token=[^&]*/', 'token=…', $redirectUrl));
 		$this->redirectState->set($redirectUrl);
 	}
 

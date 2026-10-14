@@ -87,7 +87,7 @@ class PostLoginListener implements IEventListener {
 			$url .= '&return=' . urlencode($redirectUrl);
 		}
 
-		$this->logger->warning("files_sharding: redirecting {$userId} → {$url}");
+		$this->logger->info("files_sharding: redirecting {$userId} → " . preg_replace('/token=[^&]*/', 'token=…', $url));
 		$this->redirectState->set($url);
 	}
 }

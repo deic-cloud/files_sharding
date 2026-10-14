@@ -129,7 +129,7 @@ class LoginController extends Controller {
 		if ($safeTarget !== '') {
 			$url .= '&return=' . urlencode($safeTarget);
 		}
-		$this->logger->warning("files_sharding: dispatch → {$url}");
+		$this->logger->info("files_sharding: dispatch → " . preg_replace('/token=[^&]*/', 'token=…', $url));
 		return new RedirectResponse($url);
 	}
 
@@ -199,7 +199,7 @@ class LoginController extends Controller {
 				$this->logger->error('files_sharding: master URL is not configured on this silo');
 				return new TemplateResponse('files_sharding', 'login_error', ['message' => 'Silo not configured', 'login_url' => $masterLogoutUrl], 'guest');
 			}
-			$this->logger->warning("files_sharding: validating token for user={$user} via {$masterUrl}");
+			$this->logger->info("files_sharding: validating token for user={$user} via {$masterUrl}");
 			$data = $this->client->postDirect($masterUrl, 'internal/token/validate', ['token' => $token]);
 		}
 		if ($data === null || empty($data['user_id'])) {
