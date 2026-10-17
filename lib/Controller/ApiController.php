@@ -173,6 +173,226 @@ class ApiController extends OCSController {
 		return new DataResponse(['status' => 'added']);
 	}
 
+	/**
+	 * "Copy to my files": a real copy of a public link's file or folder into the
+	 * visitor's own files (top level, name of the shared item, "(2)" when taken).
+	 * The counterpart of saveShare() for what a visitor wants to work on and
+	 * save - notebooks above all; a received share is read-only. The content is
+	 * read from the share itself when it is on this node, else over the link's
+	 * public WebDAV on the cluster node that answers for it. Folders are copied
+	 * recursively, up to COPY_MAX_FILES files / COPY_MAX_BYTES.
+	 */
+	#[NoAdminRequired]
+	public function copyShare(string $token, string $path = '', string $name = ''): DataResponse {
+		$uid = $this->currentUserId();
+		if ($uid === '') {
+			return new DataResponse(['message' => 'Not logged in'], 401);
+		}
+		if (!preg_match('/^[A-Za-z0-9_.-]{3,64}$/', $token)) {
+			return new DataResponse(['message' => 'Invalid link'], 400);
+		}
+		$path = trim(str_replace('\\', '/', $path), '/');
+		if (str_contains($path, '..')) {
+			return new DataResponse(['message' => 'Invalid path'], 400);
+		}
+		$userFolder = $this->rootFolder->getUserFolder($uid);
+		try {
+			// On this node: copy the node tree directly.
+			$share = $this->shareManager->getShareByToken($token);
+			if ((string)$share->getShareOwner() === $uid) {
+				return new DataResponse(['status' => 'own']);
+			}
+			$src = $share->getNode();
+			if ($path !== '' && $src instanceof \OCP\Files\Folder) {
+				$src = $src->get($path);
+			}
+			$target = $this->freeName($userFolder, $src->getName());
+			$n = $this->countFiles($src);
+			if ($n > self::COPY_MAX_FILES || $src->getSize() > self::COPY_MAX_BYTES) {
+				return new DataResponse(['message' => 'Too large to copy; use "Share with me" instead'], 413);
+			}
+			$src->copy($userFolder->getPath() . '/' . $target);
+			return new DataResponse(['status' => 'copied', 'path' => $target, 'files' => $n]);
+		} catch (\OCP\Share\Exceptions\ShareNotFound) {
+			// not here: fall through to the cluster
+		} catch (\Throwable $e) {
+			return new DataResponse(['message' => 'Could not copy: ' . $e->getMessage()], 500);
+		}
+		// Another node holds it: public WebDAV with the token as user name.
+		$host = '';
+		$client = \OCP\Server::get(\OCP\Http\Client\IClientService::class)->newClient();
+		$opts = ['auth' => [$token, ''], 'timeout' => 60, 'verify' => false, 'nextcloud' => ['allow_local_address' => true]];
+		$probed = [];
+		// Candidate nodes: the master (canonical link host), the node the master
+		// redirects /index.php/s/<token> to (ShareLinkResolveMiddleware knows the
+		// owner's node), and, on the master itself, every registered server.
+		$bases = [];
+		$master = rtrim((string)$this->shardingService->masterUrl(), '/');
+		if ($master !== '') {
+			$bases[] = $master;
+			try {
+				$h = $client->head($master . '/index.php/s/' . rawurlencode($token),
+					['timeout' => 20, 'verify' => false, 'allow_redirects' => false, 'nextcloud' => ['allow_local_address' => true]]);
+				$loc = (string)($h->getHeader('Location') ?? '');
+				if ($loc !== '' && ($u = parse_url($loc)) && !empty($u['host'])) {
+					$bases[] = ($u['scheme'] ?? 'https') . '://' . $u['host'] . (isset($u['port']) ? ':' . $u['port'] : '');
+				}
+			} catch (\Throwable) {
+			}
+		}
+		foreach ($this->shardingService->getAllServers() as $server) {
+			$bases[] = rtrim((string)$server->getUrl(), '/');
+		}
+		if ($bases === []) {
+			$bases[] = rtrim((string)\OCP\Server::get(\OCP\IURLGenerator::class)->getAbsoluteURL('/'), '/');
+		}
+		foreach (array_values(array_unique($bases)) as $serverBase) {
+			$base = $serverBase . '/public.php/webdav/';
+			try {
+				$r = $client->request('PROPFIND', $base, $opts + ['headers' => ['Depth' => '0']]);
+				$probed[] = $base . ' ' . $r->getStatusCode();
+				if ($r->getStatusCode() === 207) {
+					$host = $base;
+					break;
+				}
+			} catch (\Throwable $e) {
+				$probed[] = $base . ' ' . $e->getMessage();
+			}
+		}
+		if ($host === '') {
+			\OCP\Server::get(\Psr\Log\LoggerInterface::class)->warning('files_sharding copyShare: no node answers for ' . $token . ': ' . implode('; ', $probed));
+			return new DataResponse(['message' => 'Share not found'], 404);
+		}
+		try {
+			$enc = static fn (string $p): string => implode('/', array_map('rawurlencode', array_filter(explode('/', $p), 'strlen')));
+			// list what is behind the link (Depth: infinity is refused by default; walk level by level)
+			$items = $this->davWalk($client, $host, $path, $opts);   // [['path'=>rel, 'dir'=>bool, 'size'=>int], ...]
+			$files = array_filter($items, static fn ($i) => !$i['dir']);
+			$bytes = array_sum(array_map(static fn ($i) => $i['size'], $files));
+			if (count($files) > self::COPY_MAX_FILES || $bytes > self::COPY_MAX_BYTES) {
+				return new DataResponse(['message' => 'Too large to copy; use "Share with me" instead'], 413);
+			}
+			$rootName = $path !== '' ? basename($path) : ($this->davName($client, $host, $opts) ?: (basename(str_replace('\\', '/', $name)) ?: 'Copy'));
+			$target = $this->freeName($userFolder, $rootName);
+			$isDir = count($items) !== 1 || $items[0]['dir'] || $items[0]['path'] !== '';
+			if (!$isDir) {
+				$body = (string)$client->get($host . $enc($path), $opts)->getBody();
+				$userFolder->newFile($target, $body);
+			} else {
+				$dst = $userFolder->newFolder($target);
+				foreach ($items as $i) {
+					if ($i['path'] === '') {
+						continue;
+					}
+					if ($i['dir']) {
+						$dst->newFolder($i['path']);
+					} else {
+						$body = (string)$client->get($host . $enc(($path !== '' ? $path . '/' : '') . $i['path']), $opts)->getBody();
+						$dst->newFile($i['path'], $body);
+					}
+				}
+			}
+			return new DataResponse(['status' => 'copied', 'path' => $target, 'files' => count($files)]);
+		} catch (\Throwable $e) {
+			return new DataResponse(['message' => 'Could not copy: ' . $e->getMessage()], 500);
+		}
+	}
+
+	private const COPY_MAX_FILES = 2000;
+	private const COPY_MAX_BYTES = 5 * 1024 * 1024 * 1024;
+
+	/** A top-level name not yet taken in the user's files: name, "name (2)", ... */
+	private function freeName(\OCP\Files\Folder $folder, string $name): string {
+		if (!$folder->nodeExists($name)) {
+			return $name;
+		}
+		$ext = pathinfo($name, PATHINFO_EXTENSION);
+		$stem = $ext !== '' ? substr($name, 0, -strlen($ext) - 1) : $name;
+		for ($i = 2; $i < 1000; $i++) {
+			$cand = $stem . ' (' . $i . ')' . ($ext !== '' ? '.' . $ext : '');
+			if (!$folder->nodeExists($cand)) {
+				return $cand;
+			}
+		}
+		throw new \RuntimeException('No free name');
+	}
+
+	private function countFiles(\OCP\Files\Node $node): int {
+		if ($node instanceof \OCP\Files\File) {
+			return 1;
+		}
+		$n = 0;
+		foreach ($node->getDirectoryListing() as $child) {
+			$n += $this->countFiles($child);
+			if ($n > self::COPY_MAX_FILES) {
+				break;
+			}
+		}
+		return $n;
+	}
+
+	/** Name of the item behind a public link (its displayname at the WebDAV root). */
+	private function davName(\OCP\Http\Client\IClient $client, string $host, array $opts): string {
+		try {
+			$xml = (string)$client->request('PROPFIND', $host, $opts + [
+				'headers' => ['Depth' => '0', 'Content-Type' => 'text/xml'],
+				'body' => '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:displayname/></d:prop></d:propfind>',
+			])->getBody();
+			if (preg_match('#<d:displayname>([^<]*)</d:displayname>#i', $xml, $m) && trim($m[1]) !== '') {
+				return html_entity_decode(trim($m[1]));
+			}
+		} catch (\Throwable) {
+		}
+		return '';
+	}
+
+	/**
+	 * Walk a public WebDAV tree level by level.
+	 * @return list<array{path: string, dir: bool, size: int}> relative to $path; the root itself has path ''.
+	 */
+	private function davWalk(\OCP\Http\Client\IClient $client, string $host, string $path, array $opts): array {
+		$enc = static fn (string $p): string => implode('/', array_map('rawurlencode', array_filter(explode('/', $p), 'strlen')));
+		$out = [];
+		$queue = [''];
+		$seen = 0;
+		while ($queue !== []) {
+			$rel = array_shift($queue);
+			$url = $host . $enc(($path !== '' ? $path . '/' : '') . $rel) . ($rel !== '' || $path !== '' ? '/' : '');
+			$xml = (string)$client->request('PROPFIND', rtrim($url, '/') . ($rel === '' && $path === '' ? '' : '/'), $opts + ['headers' => ['Depth' => '1']])->getBody();
+			preg_match_all('#<d:response>(.*?)</d:response>#is', $xml, $resps);
+			$first = true;
+			foreach ($resps[1] as $r) {
+				if (!preg_match('#<d:href>([^<]+)</d:href>#i', $r, $h)) {
+					continue;
+				}
+				$href = rawurldecode(html_entity_decode($h[1]));
+				$isDir = (bool)preg_match('#<d:collection\s*/?>#i', $r);
+				$size = preg_match('#<d:getcontentlength>(\d+)</d:getcontentlength>#i', $r, $sz) ? (int)$sz[1] : 0;
+				$name = basename(rtrim($href, '/'));
+				if ($first) {
+					// the collection (or file) itself
+					$first = false;
+					if ($rel === '') {
+						$out[] = ['path' => '', 'dir' => $isDir, 'size' => $size];
+						if (!$isDir) {
+							return $out;
+						}
+					}
+					continue;
+				}
+				$child = ($rel !== '' ? $rel . '/' : '') . $name;
+				$out[] = ['path' => $child, 'dir' => $isDir, 'size' => $size];
+				if ($isDir) {
+					$queue[] = $child;
+				}
+				if (++$seen > self::COPY_MAX_FILES) {
+					return $out;
+				}
+			}
+		}
+		return $out;
+	}
+
 	/** Canonical public-link URL: <master>/shared/<token> (see ShardingService::publicLinkUrl). */
 	private function linkUrl(string $token): string {
 		return $this->shardingService->publicLinkUrl($token);

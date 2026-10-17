@@ -71,6 +71,7 @@ return [
 		['name' => 'api#setLinkRequireLogin', 'url' => '/api/v1/link-require-login', 'verb' => 'PUT'],
 		// One-click mount of a public link into the visitor's own files
 		['name' => 'api#saveShare',    'url' => '/api/v1/save-share',       'verb' => 'POST'],
+		['name' => 'api#copyShare',    'url' => '/api/v1/copy-share',       'verb' => 'POST'],
 		['name' => 'api#getServers',   'url' => '/api/v1/servers',          'verb' => 'GET'],
 		['name' => 'api#addServer',    'url' => '/api/v1/servers',          'verb' => 'POST'],
 		['name' => 'api#updateServer', 'url' => '/api/v1/servers/{id}',     'verb' => 'PUT'],
