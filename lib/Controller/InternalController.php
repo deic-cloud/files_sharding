@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OCA\FilesSharding\Controller;
 
 use OCA\FilesSharding\Service\ClusterLinkService;
+use OCA\FilesSharding\Service\LocalUserService;
 use OCA\FilesSharding\Service\GroupShareFanoutService;
 use OCA\FilesSharding\Service\ShareSyncService;
 use OCA\FilesSharding\Service\ShardingService;
@@ -41,6 +42,7 @@ class InternalController extends Controller {
 		private ShareSyncService                  $shareSyncService,
 		private GroupShareFanoutService           $fanout,
 		private ClusterLinkService                $clusterLinks,
+		private LocalUserService                  $localUsers,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -261,6 +263,23 @@ class InternalController extends Controller {
 			return new JSONResponse(['success' => false, 'message' => 'OCM notification failed'], 502);
 		}
 		return new JSONResponse(['success' => true]);
+	}
+
+	/**
+	 * Create the local account of a user assigned to this node ahead of their first
+	 * login, as the login exchange would (files_sharding:user:prepare on the master;
+	 * used by the migration so data can be copied and scanned before anyone logs in).
+	 */
+	#[PublicPage]
+	#[NoCSRFRequired]
+	public function provisionUser(string $userId, string $display_name = '', string $email = ''): JSONResponse {
+		if ($err = $this->checkSecret()) return $err;
+		try {
+			$r = $this->localUsers->ensure($userId, $display_name, $email);
+		} catch (\Throwable $e) {
+			return new JSONResponse(['message' => $e->getMessage()], 500);
+		}
+		return new JSONResponse(['success' => true, 'created' => $r['created']]);
 	}
 
 	/**

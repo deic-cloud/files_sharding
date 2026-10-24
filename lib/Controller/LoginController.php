@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OCA\FilesSharding\Controller;
 
 use OCA\FilesSharding\Service\InterServerClient;
+use OCA\FilesSharding\Service\LocalUserService;
 use OCA\FilesSharding\Service\ShardingService;
 use OCA\FilesSharding\Service\SsoCookie;
 use OCA\FilesSharding\Service\TokenService;
@@ -38,6 +39,7 @@ class LoginController extends Controller {
 		private IConfig           $config,
 		private ICrypto           $crypto,
 		private LoggerInterface   $logger,
+		private LocalUserService  $localUsers,
 		private SsoCookie         $ssoCookie,
 		private \OCA\FilesSharding\Service\LinkPolicy $linkPolicy,
 	) {
@@ -212,15 +214,10 @@ class LoginController extends Controller {
 		$localUser    = $this->userManager->get($userId);
 		$sessionPassword = '';           // plaintext to place in session after login
 		if ($localUser === null) {
-			// New user: generate a password we know and store it encrypted.
-			// SudoPasswordMiddleware injects it for the change-password form
-			// until the user has set their own password.
-			$sessionPassword = bin2hex(random_bytes(32));
-			$localUser = $this->userManager->createUser($userId, $sessionPassword);
-			$this->config->setUserValue(
-				$userId, 'files_sharding', 'session_pw',
-				$this->crypto->encrypt($sessionPassword)
-			);
+			// New user: created as files_sharding:user:prepare does (LocalUserService).
+			$ensured = $this->localUsers->ensure($userId);
+			$localUser = $ensured['user'];
+			$sessionPassword = $ensured['password'];
 		} else {
 			// Existing user: decrypt the stored initial password if the user
 			// hasn't changed it yet.
