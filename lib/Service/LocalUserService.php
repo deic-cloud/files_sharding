@@ -31,7 +31,7 @@ class LocalUserService {
 	 * @return array{user: IUser, created: bool, password: string} password is the
 	 *         plaintext of a NEW account's generated password, '' otherwise
 	 */
-	public function ensure(string $userId, string $displayName = '', string $email = ''): array {
+	public function ensure(string $userId, string $displayName = '', string $email = '', string $quota = ''): array {
 		$user = $this->userManager->get($userId);
 		$created = false;
 		$password = '';
@@ -49,6 +49,9 @@ class LocalUserService {
 		}
 		if ($email !== '' && $user->getEMailAddress() !== $email) {
 			$user->setEMailAddress($email);
+		}
+		if ($quota !== '' && $user->getQuota() !== $quota) {
+			$user->setQuota($quota);
 		}
 		return ['user' => $user, 'created' => $created, 'password' => $password];
 	}

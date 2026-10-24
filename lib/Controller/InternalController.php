@@ -269,13 +269,14 @@ class InternalController extends Controller {
 	 * Create the local account of a user assigned to this node ahead of their first
 	 * login, as the login exchange would (files_sharding:user:prepare on the master;
 	 * used by the migration so data can be copied and scanned before anyone logs in).
+	 * Name, e-mail and quota are the master's, as the login exchange applies them.
 	 */
 	#[PublicPage]
 	#[NoCSRFRequired]
-	public function provisionUser(string $userId, string $display_name = '', string $email = ''): JSONResponse {
+	public function provisionUser(string $userId, string $display_name = '', string $email = '', string $quota = ''): JSONResponse {
 		if ($err = $this->checkSecret()) return $err;
 		try {
-			$r = $this->localUsers->ensure($userId, $display_name, $email);
+			$r = $this->localUsers->ensure($userId, $display_name, $email, $quota);
 		} catch (\Throwable $e) {
 			return new JSONResponse(['message' => $e->getMessage()], 500);
 		}

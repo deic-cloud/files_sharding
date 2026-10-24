@@ -80,7 +80,7 @@ class PrepareUser extends Command {
 			$result = $this->client->postDirect(
 				$this->shardingService->apiUrlForServer($server),
 				'internal/users/' . rawurlencode($userId) . '/provision',
-				['display_name' => $user->getDisplayName(), 'email' => (string)$user->getEMailAddress()],
+				['display_name' => $user->getDisplayName(), 'email' => (string)$user->getEMailAddress(), 'quota' => $user->getQuota()],
 			);
 			if ($result === null || empty($result['success'])) {
 				$output->writeln("<error>{$userId}: assigned to {$server->getUrl()}, but provisioning the account there failed.</error>");
