@@ -45,6 +45,7 @@ return [
 		['name' => 'internal#groupRemoteMembers',  'url' => '/internal/group-remote-members',          'verb' => 'POST'],
 		['name' => 'internal#groupShareReconcile', 'url' => '/internal/group-share-reconcile',         'verb' => 'POST'],
 		['name' => 'internal#syncShares',          'url' => '/internal/users/{userId}/sync-shares',    'verb' => 'POST'],
+		['name' => 'internal#linkToken',           'url' => '/internal/links/{token}',                  'verb' => 'GET'],
 		['name' => 'internal#provisionUser',       'url' => '/internal/users/{userId}/provision',       'verb' => 'POST'],
 		['name' => 'internal#updateUser',          'url' => '/internal/users/{userId}/update',          'verb' => 'POST'],
 		['name' => 'internal#setPasswordHash',     'url' => '/internal/users/{userId}/pwhash',          'verb' => 'POST'],

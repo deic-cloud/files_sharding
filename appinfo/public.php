@@ -59,34 +59,21 @@ foreach ([1, 2] as $i) {
 }
 
 if ($share === null) {
-	// Not on this node. The master knows every registered silo — probe them and
-	// redirect to the one that answers (anything but 404 = it has the token,
-	// including 401 on a password-protected share).
+	// Not on this node. The master asks the registered silos (internal API, not
+	// their public endpoints — brute-force throttling) and redirects to the holder.
 	$sharding = \OC::$server->get(ShardingService::class);
 	if ($sharding->isMaster()) {
-		foreach ($sharding->getAllServers() as $server) {
-			if ($sharding->isSelf($server)) {
-				continue;
+		$locator = \OC::$server->get(\OCA\FilesSharding\Service\LinkLocator::class);
+		$home = null;
+		foreach (array_slice($segs, 0, 2) as $candidate) {   // token, or legacy <group>/<token>
+			if (($home = $locator->ownerNode(urldecode($candidate))) !== null) {
+				break;
 			}
-			$target = rtrim($server->getUrl(), '/') . $uriPath;
-			$ch = curl_init($target);
-			curl_setopt_array($ch, [
-				CURLOPT_CUSTOMREQUEST  => 'PROPFIND',
-				CURLOPT_HTTPHEADER     => ['Depth: 0'],
-				CURLOPT_NOBODY         => true,
-				CURLOPT_RETURNTRANSFER => true,
-				CURLOPT_SSL_VERIFYPEER => false,
-				CURLOPT_SSL_VERIFYHOST => false,
-				CURLOPT_TIMEOUT        => 5,
-			]);
-			curl_exec($ch);
-			$code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-			curl_close($ch);
-			if ($code !== 0 && $code !== 404) {
-				$qs = ($_SERVER['QUERY_STRING'] ?? '') !== '' ? '?' . $_SERVER['QUERY_STRING'] : '';
-				header('Location: ' . $target . $qs, true, 302);
-				exit;
-			}
+		}
+		if ($home !== null) {
+			$qs = ($_SERVER['QUERY_STRING'] ?? '') !== '' ? '?' . $_SERVER['QUERY_STRING'] : '';
+			header('Location: ' . $home . $uriPath . $qs, true, 302);
+			exit;
 		}
 	}
 	http_response_code(404);

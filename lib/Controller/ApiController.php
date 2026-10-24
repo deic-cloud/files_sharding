@@ -65,9 +65,8 @@ class ApiController extends OCSController {
 	 * Rename a public link share's token to a user-chosen name (old-service
 	 * feature: "type any name not already used by someone else"). The link then
 	 * answers at /s/<name> and /remote.php/public/<name>/. Uniqueness is
-	 * CLUSTER-wide: checked locally, then via the public endpoint's own probe
-	 * (asking the master, whose 404-handler fans out to every silo — or probing
-	 * the silos directly when we ARE the master).
+	 * CLUSTER-wide: checked locally, then via LinkLocator (on a silo the master
+	 * answers for the cluster over the internal API).
 	 */
 	#[NoAdminRequired]
 	public function setLinkName(string $path, string $name): DataResponse {
@@ -101,7 +100,11 @@ class ApiController extends OCSController {
 		} catch (\OCP\Share\Exceptions\ShareNotFound) {
 		}
 		// Taken anywhere else in the cluster?
-		if ($this->linkNameTakenElsewhere($name)) {
+		$taken = $this->linkNameTakenElsewhere($name);
+		if ($taken === null) {
+			return new DataResponse(['message' => 'Could not check whether the name is free on the other servers; please try again'], 503);
+		}
+		if ($taken) {
 			return new DataResponse(['message' => 'That name is already in use'], 409);
 		}
 
@@ -398,33 +401,9 @@ class ApiController extends OCSController {
 		return $this->shardingService->publicLinkUrl($token);
 	}
 
-	private function linkNameTakenElsewhere(string $name): bool {
-		$probe = function (string $baseUrl) use ($name): bool {
-			$ch = curl_init(rtrim($baseUrl, '/') . '/remote.php/public/' . rawurlencode($name) . '/');
-			curl_setopt_array($ch, [
-				CURLOPT_CUSTOMREQUEST  => 'PROPFIND',
-				CURLOPT_HTTPHEADER     => ['Depth: 0'],
-				CURLOPT_NOBODY         => true,
-				CURLOPT_RETURNTRANSFER => true,
-				CURLOPT_SSL_VERIFYPEER => false,
-				CURLOPT_SSL_VERIFYHOST => false,
-				CURLOPT_TIMEOUT        => 5,
-			]);
-			curl_exec($ch);
-			$code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-			curl_close($ch);
-			return $code !== 0 && $code !== 404; // 207/401/… all mean "exists"
-		};
-		if ($this->shardingService->isMaster()) {
-			foreach ($this->shardingService->getAllServers() as $server) {
-				if (!$this->shardingService->isSelf($server) && $probe($server->getUrl())) {
-					return true;
-				}
-			}
-			return false;
-		}
-		$master = $this->shardingService->masterUrl();
-		return $master !== '' && $probe($master); // master's 404-handler probes every silo
+	/** Taken on another node? (LinkLocator; null when the cluster could not be asked) */
+	private function linkNameTakenElsewhere(string $name): ?bool {
+		return \OCP\Server::get(\OCA\FilesSharding\Service\LinkLocator::class)->existsInCluster($name);
 	}
 
 	private function currentUserId(): string {

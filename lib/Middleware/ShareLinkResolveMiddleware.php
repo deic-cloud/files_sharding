@@ -4,16 +4,14 @@ declare(strict_types=1);
 
 namespace OCA\FilesSharding\Middleware;
 
+use OCA\FilesSharding\Service\LinkLocator;
 use OCA\FilesSharding\Service\ShardingService;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http\RedirectResponse;
 use OCP\AppFramework\Http\Response;
 use OCP\AppFramework\Middleware;
-use OCP\ICacheFactory;
 use OCP\IRequest;
-use OCP\Share\Exceptions\ShareNotFound;
-use OCP\Share\IManager as IShareManager;
-use Psr\Log\LoggerInterface;
+use OCP\Security\Bruteforce\IThrottler;
 
 /**
  * Public links resolve cluster-wide on the master.
@@ -22,9 +20,13 @@ use Psr\Log\LoggerInterface;
  * published with whatever host the owner saw — and the OLD service's links
  * (sciencedata.dk/shared/<token>, in papers for 10+ years) all name the master,
  * which the image rewrites to /index.php/s/<token>. When the master does not
- * hold the token, probe the registered silos for it (any answer but 404 = it
- * is theirs, 401/403 included) and redirect the browser there, path and query
- * intact. Same rule appinfo/public.php applies to /remote.php/public/<token>.
+ * hold the token, ask the registered silos for it (LinkLocator, internal API)
+ * and redirect the browser there, path and query intact. Core's
+ * PublicShareMiddleware has by then counted the unknown token as a failed guess
+ * (brute-force protection, action <Controller>::<method>); for a token the
+ * cluster does hold that attempt is undone, or every visitor of ~10 silo-held
+ * links would be locked out (429). Unknown tokens still count. Same lookup in
+ * appinfo/public.php for /remote.php/public/<token>.
  * Registered globally so it sees core's share controllers.
  */
 class ShareLinkResolveMiddleware extends Middleware {
@@ -35,10 +37,9 @@ class ShareLinkResolveMiddleware extends Middleware {
 
 	public function __construct(
 		private ShardingService $shardingService,
-		private IShareManager   $shareManager,
+		private LinkLocator     $links,
 		private IRequest        $request,
-		private ICacheFactory   $cacheFactory,
-		private LoggerInterface $logger,
+		private IThrottler      $throttler,
 	) {
 	}
 
@@ -58,49 +59,15 @@ class ShareLinkResolveMiddleware extends Middleware {
 		if ($token === '' || !preg_match('/^[A-Za-z0-9._-]{3,64}$/', $token)) {
 			return $response;
 		}
-		try {
-			$this->shareManager->getShareByToken($token);
+		if ($this->links->isLocal($token)) {
 			return $response; // ours after all (404 for another reason)
-		} catch (ShareNotFound) {
 		}
-		$home = $this->ownerNodeFor($token);
+		$home = $this->links->ownerNode($token);
 		if ($home === null) {
 			return $response; // nobody has it
 		}
+		$parts = explode('\\', get_class($controller));
+		$this->throttler->resetDelay($this->request->getRemoteAddress(), end($parts) . '::' . $methodName, ['token' => $token]);
 		return new RedirectResponse(rtrim($home, '/') . $this->request->getRequestUri());
-	}
-
-	/** Public URL of the silo answering for $token, or null. Cached briefly per token. */
-	private function ownerNodeFor(string $token): ?string {
-		$cache = $this->cacheFactory->createLocal('files_sharding_linknode');
-		$hit = $cache->get($token);
-		if (is_string($hit)) {
-			return $hit === '' ? null : $hit;
-		}
-		$found = null;
-		foreach ($this->shardingService->getAllServers() as $server) {
-			if ($this->shardingService->isSelf($server)) {
-				continue;
-			}
-			$base = rtrim($server->getUrl(), '/');
-			$ch = curl_init($base . '/index.php/s/' . rawurlencode($token));
-			curl_setopt_array($ch, [
-				CURLOPT_NOBODY         => true,
-				CURLOPT_RETURNTRANSFER => true,
-				CURLOPT_FOLLOWLOCATION => false,
-				CURLOPT_SSL_VERIFYPEER => false,
-				CURLOPT_SSL_VERIFYHOST => false,
-				CURLOPT_TIMEOUT        => 5,
-			]);
-			curl_exec($ch);
-			$code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-			curl_close($ch);
-			if ($code !== 0 && $code !== 404) {
-				$found = $base;
-				break;
-			}
-		}
-		$cache->set($token, $found ?? '', 300);
-		return $found;
 	}
 }

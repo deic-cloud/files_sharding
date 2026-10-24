@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OCA\FilesSharding\Controller;
 
 use OCA\FilesSharding\Service\ClusterLinkService;
+use OCA\FilesSharding\Service\LinkLocator;
 use OCA\FilesSharding\Service\LocalUserService;
 use OCA\FilesSharding\Service\GroupShareFanoutService;
 use OCA\FilesSharding\Service\ShareSyncService;
@@ -43,6 +44,7 @@ class InternalController extends Controller {
 		private GroupShareFanoutService           $fanout,
 		private ClusterLinkService                $clusterLinks,
 		private LocalUserService                  $localUsers,
+		private LinkLocator                       $links,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -263,6 +265,25 @@ class InternalController extends Controller {
 			return new JSONResponse(['success' => false, 'message' => 'OCM notification failed'], 502);
 		}
 		return new JSONResponse(['success' => true]);
+	}
+
+	/**
+	 * Does this node hold a public link with $token? With cluster=1 on the master:
+	 * anywhere in the cluster. Always 200 with {exists}, so an error is not taken
+	 * for "not here". Replaces probing public link pages (brute-force throttling).
+	 */
+	#[PublicPage]
+	#[NoCSRFRequired]
+	public function linkToken(string $token, string $cluster = ''): JSONResponse {
+		if ($err = $this->checkSecret()) return $err;
+		if ($this->links->isLocal($token)) {
+			return new JSONResponse(['exists' => true, 'node' => rtrim((string)$this->config->getSystemValue('overwrite.cli.url', ''), '/')]);
+		}
+		if ($cluster !== '' && $this->shardingService->isMaster()) {
+			$node = $this->links->ownerNode($token, true);
+			return new JSONResponse(['exists' => $node !== null, 'node' => $node]);
+		}
+		return new JSONResponse(['exists' => false]);
 	}
 
 	/**
