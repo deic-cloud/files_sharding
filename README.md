@@ -81,6 +81,20 @@ occ files_sharding:server:list
 occ files_sharding:user:list [--server=1]
 ```
 
+## Health check
+
+    sudo -u www php occ files_sharding:check [--users] [--quiet-ok]
+
+Read-only; exit code 1 if anything FAILs, so it can run from cron. Checks that the node
+works as a cluster member: config keys set, config writable by the web server; every value
+encrypted with `secret` decrypts (OCM signing key, sensitive app/user settings, stored
+credentials) - after a `secret` change these silently break federated sharing; the master
+answers the internal API; every other cluster node (and, on a silo, the master) is a trusted
+server, so incoming shares are auto-accepted; every background job the enabled apps declare
+is registered and cron runs; the nightly backup copies (zfs_backup.sh, physical boxes) are
+fresh. `--users` (silos): local accounts the master places on another node. Run it after
+any reinstall or restore - all of this broke unnoticed on a test node after a database rebuild.
+
 ## Architecture
 
 ### Server registry

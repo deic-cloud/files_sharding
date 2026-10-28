@@ -29,6 +29,7 @@
 		<command>OCA\FilesSharding\Command\AssignUser</command>
 		<command>OCA\FilesSharding\Command\AutoAssignUser</command>
 		<command>OCA\FilesSharding\Command\PrepareUser</command>
+		<command>OCA\FilesSharding\Command\Check</command>
 	</commands>
 	<background-jobs>
 		<job>OCA\FilesSharding\Job\ReportFreeSpaceJob</job>
