@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace OCA\FilesSharding\Collaboration;
 
-use OCA\FilesSharding\Service\InterServerClient;
 use OCA\FilesSharding\Service\ShardingService;
 use OCP\Collaboration\Collaborators\ISearchPlugin;
 use OCP\Collaboration\Collaborators\ISearchResult;
@@ -37,7 +36,7 @@ class MasterUserSearch implements ISearchPlugin {
 
 	public function __construct(
 		private ShardingService  $shardingService,
-		private InterServerClient $client,
+		private MasterDirectory  $directory,
 		private LoggerInterface  $logger,
 		private IRequest         $request,
 		IUserSession             $userSession,
@@ -68,19 +67,11 @@ class MasterUserSearch implements ISearchPlugin {
 			}
 		}
 
-		$masterInternalUrl = $this->shardingService->masterInternalUrl();
-		if ($masterInternalUrl === '') {
+		$users = $this->directory->search((string)$search, (int)$limit);
+		if ($users === null) {
 			return false;
 		}
-
-		$data = $this->client->getDirect($masterInternalUrl, 'internal/users/search', [
-			'q'     => $search,
-			'limit' => $limit,
-		]);
-
-		if (!is_array($data) || !isset($data['users'])) {
-			return false;
-		}
+		$data = ['users' => $users];
 
 		$resultType = new SearchResultType('remotes');
 		$wide  = [];

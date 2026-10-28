@@ -35,6 +35,7 @@ class RemoteClusterDedupeFilter implements ISearchPlugin {
 		private ShardingService $shardingService,
 		private IRequest        $request,
 		private IUserManager    $userManager,
+		private MasterDirectory $directory,
 	) {
 	}
 
@@ -48,6 +49,12 @@ class RemoteClusterDedupeFilter implements ISearchPlugin {
 	 * (skip: core lists them locally), false for cross-silo peers (re-add).
 	 */
 	private function residentHere(string $userId): bool {
+		// The master directory's answer (this request's search) decides first:
+		// a stray local account does not make a user resident here.
+		$elsewhere = $this->directory->livesElsewhere($userId);
+		if ($elsewhere !== null) {
+			return !$elsewhere;
+		}
 		try {
 			$server = $this->shardingService->getUserServer($userId);
 			if ($server !== null) {

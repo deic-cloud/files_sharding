@@ -18,8 +18,9 @@ use OCP\Collaboration\Collaborators\SearchResultType;
  * core would otherwise offer a non-resident (e.g. alice) as a local target — a
  * dead type-0 share, since her storage lives on another silo. This strips those,
  * leaving only the federated @master entry MasterUserSearch adds. On a silo the
- * user→silo map is absent, so isResidentHere() treats everyone as resident and
- * this is a no-op (silos normally hold only their own residents anyway).
+ * user→silo map is absent, so residency comes from the master directory
+ * (MasterDirectory): a stray local account of a user who lives elsewhere is
+ * removed too, so shares go to the user's real home via @master.
  *
  * One subtlety: core's UserPlugin marks "exact users id match" BEFORE this
  * filter removes a non-resident directory account, and core's final sanitising
@@ -32,6 +33,7 @@ use OCP\Collaboration\Collaborators\SearchResultType;
 class ResidentUserFilter implements ISearchPlugin {
 	public function __construct(
 		private ShardingService $shardingService,
+		private MasterDirectory $directory,
 	) {
 	}
 
@@ -47,6 +49,13 @@ class ResidentUserFilter implements ISearchPlugin {
 			$buckets[] = $current['exact']['users'];
 		}
 
+		// On a silo the user→silo map is absent; ask the master directory (the
+		// search MasterUserSearch makes anyway - one call per request) so a local
+		// account the master places on another node is not offered as a target.
+		if ($buckets !== []) {
+			$this->directory->search((string)$search, (int)$limit);
+		}
+
 		$checked = [];
 		foreach ($buckets as $bucket) {
 			foreach ($bucket as $entry) {
@@ -56,6 +65,7 @@ class ResidentUserFilter implements ISearchPlugin {
 				}
 				$checked[$uid] = true;
 				if (!$this->shardingService->isResidentHere($uid)
+					|| $this->directory->livesElsewhere($uid) === true
 					|| $this->shardingService->isHiddenUser($uid)) {
 					$searchResult->removeCollaboratorResult($type, $uid);
 				}
