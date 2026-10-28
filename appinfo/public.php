@@ -127,6 +127,11 @@ if ($node instanceof Folder) {
 	$root = new SimpleCollection(implode('/', $baseSegs), [
 		new PublicFile($node, $node->getName(), $mask),
 	]);
+	// GET/HEAD of the link itself returns the file (a GET on the collection would
+	// be Sabre's 501), so /public/<token> downloads a single shared file.
+	if (count($segs) === $consumed && in_array($_SERVER['REQUEST_METHOD'] ?? '', ['GET', 'HEAD'], true)) {
+		$_SERVER['REQUEST_URI'] = $baseUri . rawurlencode($node->getName());
+	}
 }
 
 $server = new Server($root);
