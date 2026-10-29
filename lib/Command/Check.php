@@ -222,25 +222,50 @@ class Check extends Command {
 		}
 	}
 
-	/** zfs_backup.sh's nightly copies (physical boxes only - absent on test pods). */
+	/**
+	 * zfs_backup.sh's nightly run (physical boxes only - absent on test pods). Dates
+	 * come from the nightly snapshot, not from file times: cp -a and rsync keep each
+	 * file's own time, so an unchanged file looks old in a fresh copy. The system copy
+	 * is checked by comparing its config.php with the live one; it is on the spare
+	 * system disk (/dev/gpt/ROOT_bk at /mnt/backup) when there is one, else on /tank.
+	 */
 	private function checkBackups(callable $report): void {
 		$base = '/tank/data/backup';
 		if (!is_dir($base)) {
 			return;
 		}
-		$fresh = static fn (string $f): ?int => file_exists($f) ? (int)((time() - filemtime($f)) / 3600) : null;
-		foreach ([
-			'database copy' => "$base/mysql_backup/ibdata1",
-			'system copy (config.php)' => "$base/root_backup/usr/local/www/nextcloud/config/config.php",
-		] as $what => $file) {
-			$age = $fresh($file);
-			if ($age === null) {
-				$report('WARN', "nightly $what: none ($file)");
-			} elseif ($age > 26) {
-				$report('FAIL', "nightly $what is {$age} h old", 'check /var/log/zfs_backup.log and the zfs_backup line in /etc/crontab');
-			} else {
-				$report('OK', "nightly $what is {$age} h old");
+		$last = null;
+		foreach (scandir('/tank/data/.zfs/snapshot') ?: [] as $name) {
+			if (preg_match('/^(\d{4}-\d{2}-\d{2})/', $name, $m) && ($last === null || $m[1] > $last)) {
+				$last = $m[1];
 			}
+		}
+		$lastTs = $last === null ? 0 : (int)strtotime($last . ' 23:59:59');
+		if ($last === null) {
+			$report('FAIL', 'no nightly snapshot of tank/data', 'check /var/log/zfs_backup.log and the zfs_backup line in /etc/crontab');
+		} elseif ($lastTs < time() - 2 * 86400) {
+			$report('FAIL', "last nightly backup (snapshot) is from $last", 'check /var/log/zfs_backup.log and the zfs_backup line in /etc/crontab');
+		} else {
+			$report('OK', "last nightly backup (snapshot): $last");
+		}
+		if (!is_file("$base/mysql_backup/ibdata1")) {
+			$report('WARN', "no database copy in $base/mysql_backup");
+		}
+
+		$spare = is_file('/mnt/backup/etc/fstab') && str_contains((string)@file_get_contents('/mnt/backup/etc/fstab'), 'ROOT_bk');
+		$copyRoot = $spare ? '/mnt/backup' : "$base/root_backup";
+		$where = $spare ? 'on the spare system disk (ada1, ROOT_bk)' : "in $base/root_backup";
+		$live = \OC::$configDir . 'config.php';
+		$copy = $copyRoot . '/usr/local/www/nextcloud/config/config.php';
+		if (!is_readable($copy)) {
+			$report('WARN', "no system copy found ($where)");
+		} elseif (hash_file('sha256', $copy) === hash_file('sha256', $live)) {
+			$report('OK', "system copy $where: config.php matches the live one");
+		} elseif ((int)filemtime($live) > (int)strtotime(($last ?? '1970-01-01') . ' 00:00:00')) {
+			$report('WARN', "system copy $where: config.php differs - the live one was changed after the last backup ($last)");
+		} else {
+			$report('FAIL', "system copy $where: config.php differs from the live one, which is older than the last backup",
+				'the root copy step of zfs_backup.sh did not run - see /var/log/zfs_backup.log');
 		}
 	}
 
