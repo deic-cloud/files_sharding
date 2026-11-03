@@ -108,7 +108,10 @@ When a user with no silo assignment logs in interactively for the first time, `P
 1. **Admins are skipped.** Members of the `admin` group stay on the master (they need the admin UI) and are never pushed to a silo.
 2. If **no silos are registered**, the user stays on the master.
 3. **Regex match first.** Each silo may define a `user_regex` (in `files_sharding_servers`). Silos whose regex matches the user ID are the candidates, sorted by free space (`free_gb`, descending); the emptiest match wins. This lets you route users to a silo by identity — e.g. send `@dtu.dk` users to a DTU silo.
-4. **Free-space fallback.** If no regex matches, all silos are sorted by free space and the emptiest is chosen.
+4. **Default node.** If no regex matches and a default node is configured (`occ config:app:set files_sharding default_server --value <server id>`), the user goes there.
+5. **Free-space fallback.** If no regex matches and there is no default node, all silos are sorted by free space and the emptiest is chosen.
+
+Placement by institution is then pure configuration: one regex per institution node, the default node for everyone else. A node with neither a regex nor the default role only gets users by explicit assignment (e.g. a node for testing). Example: lab as default node, silo8 with `/@(?:[^@]+\.)?(?:cbs|au|aau|viauc|ucsyd)\.dk$/i`, silo9 with nothing. The rule itself is `ShardingService::chooseServer()`; `occ files_sharding:migrate:placement <users.json>` prints its decision for a list of users without assigning (migration).
 
 The choice is stored in `files_sharding_user_servers`, then `getRedirectUrl()` sends the user there. User IDs are WAYF UIDs (`eduPersonPrincipalName`); for some institutions (e.g. DTU) this is the same as the user's email.
 

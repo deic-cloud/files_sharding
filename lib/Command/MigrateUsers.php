@@ -19,8 +19,9 @@ use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * Create the accounts of a migration list (users.json from the export) on the
- * master, each the way files_sharding:user:prepare does it, but with the home node
- * from the list instead of autoAssign and with the account's old password hash:
+ * master, each the way files_sharding:user:prepare does it, with the home node
+ * from the list (files_sharding:migrate:placement made it, by the first-login rule)
+ * or, where the list has none, by that rule now - and with the old password hash:
  *
  * - the account (SAML backend, as a first WAYF login would create it; a plain
  *   Database account where user_saml is not installed, e.g. the test pods);
@@ -88,7 +89,12 @@ class MigrateUsers extends Command {
 			// The master is registered as a server too, and its residents are assigned
 			// to it: an unassigned user is a new one, whom the first login places
 			// (PostLoginListener → autoAssign).
+			// No home in the list: the same rule as a first login (regex, default node).
 			$home = rtrim((string)($entry['home'] ?? ''), '/');
+			if ($home === '') {
+				$chosen = $this->shardingService->getUserServer($userId) ?? $this->shardingService->chooseServer($userId);
+				$home = $chosen === null ? '' : rtrim($chosen->getUrl(), '/');
+			}
 			$server = $servers[$home] ?? null;
 			if ($server === null) {
 				$output->writeln("<error>{$userId}: home {$home} is not a registered server</error>");

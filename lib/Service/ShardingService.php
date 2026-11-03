@@ -384,10 +384,7 @@ class ShardingService {
 	}
 
 	/**
-	 * Assigns $userId to the best matching silo using this priority:
-	 *   1. Silos whose user_regex matches the userId (sorted by free_gb desc).
-	 *   2. All silos sorted by free_gb desc (when no regex matches).
-	 *
+	 * Assigns $userId to the node chooseServer() picks. Admins stay on the master.
 	 * Returns the chosen server, or null if no silos are registered.
 	 */
 	public function autoAssign(string $userId): ?Server {
@@ -396,38 +393,54 @@ class ShardingService {
 			$this->logger->debug("files_sharding: autoAssign: skipping admin user {$userId}");
 			return null;
 		}
+		$best = $this->chooseServer($userId, $byRegex);
+		if ($best === null) {
+			return null;
+		}
+		$this->setUserServer($userId, $best->getId());
+		$this->logger->info("files_sharding: auto-assigned {$userId} → {$best->getUrl()} (free={$best->getFreeGb()} GB, regex_match=" . ($byRegex ? 'yes' : 'no') . ')');
+		return $best;
+	}
 
+	/**
+	 * The node a new user should live on, without assigning:
+	 *   1. the nodes whose user_regex matches the user ID (the one with most free space);
+	 *   2. else the default node (app config files_sharding default_server = server id),
+	 *      so placement by university works with one regex per university node and the
+	 *      rest going to the default - a node with neither gets users only by explicit
+	 *      assignment;
+	 *   3. else, with no default set, the node with most free space.
+	 * Null if no nodes are registered.
+	 */
+	public function chooseServer(string $userId, ?bool &$byRegex = null): ?Server {
+		$byRegex = false;
 		$servers = $this->serverMapper->findAll();
 		if (empty($servers)) {
 			return null;
 		}
-
 		$byFree = static fn(Server $a, Server $b) => ($b->getFreeGb() ?? 0) <=> ($a->getFreeGb() ?? 0);
 
-		// Collect silos whose regex matches the user ID.
 		$matched = [];
 		foreach ($servers as $s) {
 			$regex = trim($s->getUserRegex());
-			if ($regex === '') {
-				continue;
-			}
 			// Silently skip invalid patterns rather than crashing.
-			if (@preg_match($regex, $userId) === 1) {
+			if ($regex !== '' && @preg_match($regex, $userId) === 1) {
 				$matched[] = $s;
 			}
 		}
-
 		if (!empty($matched)) {
 			usort($matched, $byFree);
-			$best = $matched[0];
-		} else {
-			usort($servers, $byFree);
-			$best = $servers[0];
+			$byRegex = true;
+			return $matched[0];
 		}
-
-		$this->setUserServer($userId, $best->getId());
-		$this->logger->info("files_sharding: auto-assigned {$userId} → {$best->getUrl()} (free={$best->getFreeGb()} GB, regex_match=" . (!empty($matched) ? 'yes' : 'no') . ')');
-		return $best;
+		$default = (int)$this->config->getAppValue('files_sharding', 'default_server', '0');
+		foreach ($servers as $s) {
+			if ($default > 0 && $s->getId() === $default) {
+				return $s;
+			}
+		}
+		usort($servers, $byFree);
+		return $servers[0];
 	}
 
 	/**

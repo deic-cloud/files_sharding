@@ -32,6 +32,7 @@
 		<command>OCA\FilesSharding\Command\Check</command>
 		<command>OCA\FilesSharding\Command\MigrateUsers</command>
 		<command>OCA\FilesSharding\Command\MigrateShares</command>
+		<command>OCA\FilesSharding\Command\MigratePlacement</command>
 	</commands>
 	<background-jobs>
 		<job>OCA\FilesSharding\Job\ReportFreeSpaceJob</job>
