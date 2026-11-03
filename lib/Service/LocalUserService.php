@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OCA\FilesSharding\Service;
 
 use OCP\IConfig;
+use OCP\IDBConnection;
 use OCP\IUser;
 use OCP\IUserManager;
 use OCP\Security\ICrypto;
@@ -20,6 +21,7 @@ class LocalUserService {
 		private IUserManager $userManager,
 		private IConfig      $config,
 		private ICrypto      $crypto,
+		private IDBConnection $db,
 	) {
 	}
 
@@ -54,5 +56,37 @@ class LocalUserService {
 			$user->setQuota($quota);
 		}
 		return ['user' => $user, 'created' => $created, 'password' => $password];
+	}
+
+	/**
+	 * Store a password hash for $userId as is, so this node can password-verify the
+	 * user. Writes oc_users directly: setPassword() would hash it again,
+	 * createUser() refuses a uid already claimed by the SAML backend, and core's
+	 * setPasswordHash() rejects the bare bcrypt hashes of the old service (verified
+	 * as legacy hashes against 'passwordsalt'). A direct write doesn't dispatch
+	 * PasswordUpdatedEvent either, so nothing propagates it back. Creates the
+	 * Database-backed row if the user only exists in the SAML backend here.
+	 */
+	public function storePasswordHash(string $userId, string $hash): void {
+		$qb = $this->db->getQueryBuilder();
+		$qb->select('uid')->from('users')
+			->where($qb->expr()->eq('uid', $qb->createNamedParameter($userId)));
+		$cursor = $qb->executeQuery();
+		$exists = $cursor->fetch() !== false;
+		$cursor->closeCursor();
+
+		$qb = $this->db->getQueryBuilder();
+		if ($exists) {
+			$qb->update('users')
+				->set('password', $qb->createNamedParameter($hash))
+				->where($qb->expr()->eq('uid', $qb->createNamedParameter($userId)));
+		} else {
+			$qb->insert('users')->values([
+				'uid'       => $qb->createNamedParameter($userId),
+				'uid_lower' => $qb->createNamedParameter(mb_strtolower($userId)),
+				'password'  => $qb->createNamedParameter($hash),
+			]);
+		}
+		$qb->executeStatement();
 	}
 }
