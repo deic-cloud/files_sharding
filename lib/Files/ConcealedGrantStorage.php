@@ -15,10 +15,18 @@ use OCP\Files\Storage\IStorage;
  * matches the request.
  */
 class ConcealedGrantStorage extends Wrapper {
+	/** @var string[] further storage paths to conceal (files/...) */
+	private array $extraRoots;
+
+	public function __construct(array $parameters) {
+		parent::__construct($parameters);
+		$this->extraRoots = $parameters['extraRoots'] ?? [];
+	}
+
 	public function getCache(string $path = '', ?IStorage $storage = null): ICache {
 		if (!$storage) {
 			$storage = $this;
 		}
-		return new ConcealedGrantCache(parent::getCache($path, $storage));
+		return new ConcealedGrantCache(parent::getCache($path, $storage), $this->extraRoots);
 	}
 }

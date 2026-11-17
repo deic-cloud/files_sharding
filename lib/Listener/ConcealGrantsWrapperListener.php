@@ -8,6 +8,7 @@ use OC\Files\Filesystem;
 use OCA\FilesSharding\Auth\IpAuthBackend;
 use OCA\FilesSharding\Auth\X509Backend;
 use OCA\FilesSharding\Files\ConcealedGrantStorage;
+use OCA\FilesSharding\Service\ShardingService;
 use OCP\EventDispatcher\Event;
 use OCP\EventDispatcher\IEventListener;
 use OCP\Files\Events\BeforeFileSystemSetupEvent;
@@ -35,6 +36,7 @@ class ConcealGrantsWrapperListener implements IEventListener {
 		private IRequest      $request,
 		private IpAuthBackend $ipAuth,
 		private X509Backend   $x509,
+		private ShardingService $shardingService,
 	) {
 	}
 
@@ -72,13 +74,35 @@ class ConcealGrantsWrapperListener implements IEventListener {
 		if (!($event instanceof BeforeFileSystemSetupEvent) || !$this->applies()) {
 			return;
 		}
+		// The user's top-level folders that a visibility rule hides from this
+		// client (e.g. Containers from sync clients): concealed from listings too,
+		// not only refused on access (FolderFilterPlugin) - a client shown a folder
+		// it then cannot open logs errors or takes it for deleted on the server.
+		$sharding  = $this->shardingService;
+		$clientIp  = $this->request->getRemoteAddress();
+		$userAgent = $this->request->getHeader('User-Agent');
 		Filesystem::addStorageWrapper(
 			'files_sharding_conceal_grants',
-			static function (string $mountPoint, IStorage $storage) {
-				if ($storage->instanceOfStorage(IHomeStorage::class)) {
-					return new ConcealedGrantStorage(['storage' => $storage]);
+			static function (string $mountPoint, IStorage $storage) use ($sharding, $clientIp, $userAgent) {
+				if (!$storage->instanceOfStorage(IHomeStorage::class)) {
+					return $storage;
 				}
-				return $storage;
+				$extra = [];
+				$parts = array_values(array_filter(explode('/', $mountPoint)));
+				if (count($parts) === 1) {
+					try {
+						foreach ($sharding->getFolders($parts[0]) as $rule) {
+							$folder = trim((string)$rule->getFolder(), '/');
+							if ($folder !== '' && !str_contains($folder, '/')
+								&& !$sharding->isFolderVisibleFrom($parts[0], '/' . $folder, $clientIp, $userAgent)) {
+								$extra[] = 'files/' . $folder;
+							}
+						}
+					} catch (\Throwable) {
+						// rules unavailable: grant root only
+					}
+				}
+				return new ConcealedGrantStorage(['storage' => $storage, 'extraRoots' => $extra]);
 			},
 		);
 	}
