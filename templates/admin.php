@@ -3,6 +3,16 @@
 /** @var array $_ */
 ?>
 <div id="fsh-admin" class="section">
+<!-- ── Accounts restricted to known addresses ─────────────────────── -->
+<h3>Accounts restricted to known addresses</h3>
+<p class="settings-hint">These accounts can only be used from the addresses below - in the browser and over WebDAV, also with device passwords. Use it for the admin account, privileged service accounts and test accounts. The addresses are the <code>adminips</code> setting in config.php; the list is kept on the master and applies on every server.</p>
+<p id="fsh-ru-addresses" style="margin-bottom:.5em"></p>
+<ul id="fsh-ru-list" style="margin-bottom:.5em;padding:0;list-style:none"></ul>
+<form id="fsh-ru-form" style="display:flex;gap:.5em;align-items:flex-end;flex-wrap:wrap;margin-bottom:1.5em">
+ <label>Account (user ID)<br><input type="text" id="fsh-ru-uid" placeholder="test-user" style="width:260px"></label>
+ <button type="submit" class="primary">Add</button>
+</form>
+
 <!-- ── Servers ─────────────────────────────────────────────────────── -->
 <h3>Silo servers</h3>
 <table id="fsh-servers" style="width:100%;border-collapse:collapse;margin-bottom:1em">

@@ -45,6 +45,7 @@ class InternalController extends Controller {
 		private ClusterLinkService                $clusterLinks,
 		private LocalUserService                  $localUsers,
 		private LinkLocator                       $links,
+		private \OCA\FilesSharding\Service\AccountPolicy $accountPolicy,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -55,6 +56,22 @@ class InternalController extends Controller {
 			return new JSONResponse(['message' => 'Unauthorized'], 401);
 		}
 		return null;
+	}
+
+	/** Master: the accounts restricted to known addresses (AccountPolicy). */
+	#[PublicPage]
+	#[NoCSRFRequired]
+	public function restrictedUsers(): JSONResponse {
+		if ($err = $this->checkSecret()) return $err;
+		return new JSONResponse(['users' => $this->accountPolicy->restrictedUsers()]);
+	}
+
+	/** Master: has the account ever logged in through WAYF (AccountPolicy)? */
+	#[PublicPage]
+	#[NoCSRFRequired]
+	public function userWayf(string $uid): JSONResponse {
+		if ($err = $this->checkSecret()) return $err;
+		return new JSONResponse(['wayf' => $this->accountPolicy->hasWayfLogin($uid)]);
 	}
 
 	/**

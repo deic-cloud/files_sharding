@@ -33,6 +33,7 @@ class ApiController extends OCSController {
 		private \OCP\Share\IManager $shareManager,
 		private \OCP\Files\IRootFolder $rootFolder,
 		private \OCA\FilesSharding\Service\LinkPolicy $linkPolicy,
+		private \OCA\FilesSharding\Service\AccountPolicy $accountPolicy,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -424,6 +425,31 @@ class ApiController extends OCSController {
 		return new DataResponse(['ids' => $this->fanout->fanoutShareIdsForOwner($uid)]);
 	}
 
+
+	// ── Accounts restricted to known addresses (admin only) ──────────────────
+
+	public function getRestrictedUsers(): DataResponse {
+		return new DataResponse([
+			'users'     => $this->accountPolicy->restrictedUsers(),
+			'addresses' => $this->accountPolicy->allowedAddresses(),
+			'editable'  => $this->shardingService->isMaster(),
+		]);
+	}
+
+	/** @param string[] $users */
+	public function setRestrictedUsers(array $users = []): DataResponse {
+		if (!$this->shardingService->isMaster()) {
+			return new DataResponse(['message' => 'The list is kept on the master server; edit it there.'], 409);
+		}
+		$me = $this->userSession->getUser()?->getUID() ?? '';
+		$ip = $this->request->getRemoteAddress();
+		$users = $this->accountPolicy->setRestrictedUsers($users);
+		$warning = '';
+		if ($me !== '' && in_array($me, $users, true) && !$this->accountPolicy->isAllowedFrom($me, $ip)) {
+			$warning = "Your own account is on the list and your address ($ip) is not among the allowed ones: you will be logged out on your next request.";
+		}
+		return new DataResponse(['users' => $users, 'warning' => $warning]);
+	}
 
 	// ── Servers (admin only) ──────────────────────────────────────────────────
 

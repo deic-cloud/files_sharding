@@ -33,6 +33,9 @@ return [
 		['name' => 'internal#clusterLinkOwnerFile',      'url' => '/internal/cluster-link/owner-file',       'verb' => 'POST'],
 		['name' => 'internal#clusterLinkOwnerFileLocal', 'url' => '/internal/cluster-link/owner-file-local', 'verb' => 'POST'],
 		['name' => 'internal#validateToken', 'url' => '/internal/token/validate',     'verb' => 'POST'],
+		// Account policy, asked by silos (AccountPolicy)
+		['name' => 'internal#restrictedUsers', 'url' => '/internal/restricted-users',   'verb' => 'GET'],
+		['name' => 'internal#userWayf',        'url' => '/internal/users/{uid}/wayf',   'verb' => 'GET'],
 		['name' => 'internal#issueToken',    'url' => '/internal/token',             'verb' => 'POST'],
 		['name' => 'internal#updateFree',    'url' => '/internal/servers/{id}/free', 'verb' => 'POST'],
 		['name' => 'internal#listServers',        'url' => '/internal/servers',                      'verb' => 'GET'],
@@ -75,6 +78,9 @@ return [
 		['name' => 'api#saveShare',    'url' => '/api/v1/save-share',       'verb' => 'POST'],
 		['name' => 'api#copyShare',    'url' => '/api/v1/copy-share',       'verb' => 'POST'],
 		['name' => 'api#getServers',   'url' => '/api/v1/servers',          'verb' => 'GET'],
+		// Accounts restricted to known addresses (admin only)
+		['name' => 'api#getRestrictedUsers', 'url' => '/api/v1/restricted-users', 'verb' => 'GET'],
+		['name' => 'api#setRestrictedUsers', 'url' => '/api/v1/restricted-users', 'verb' => 'PUT'],
 		['name' => 'api#addServer',    'url' => '/api/v1/servers',          'verb' => 'POST'],
 		['name' => 'api#updateServer', 'url' => '/api/v1/servers/{id}',     'verb' => 'PUT'],
 		['name' => 'api#deleteServer', 'url' => '/api/v1/servers/{id}',     'verb' => 'DELETE'],

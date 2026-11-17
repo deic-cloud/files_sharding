@@ -23,6 +23,7 @@ class SabrePluginListener implements IEventListener {
 		private IUserSession    $userSession,
 		private IUserManager    $userManager,
 		private LoggerInterface $logger,
+		private \OCA\FilesSharding\Service\AccountPolicy $accountPolicy,
 	) {
 	}
 
@@ -30,6 +31,9 @@ class SabrePluginListener implements IEventListener {
 		if (!($event instanceof SabrePluginAddEvent)) {
 			return;
 		}
+		$event->getServer()->addPlugin(
+			new \OCA\FilesSharding\DAV\RestrictedAccountPlugin($this->accountPolicy, $this->request, $this->userSession, $this->logger)
+		);
 		$event->getServer()->addPlugin(
 			new FolderFilterPlugin($this->shardingService, $this->request, $this->userSession, $this->logger)
 		);

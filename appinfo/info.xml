@@ -5,7 +5,7 @@
 	<name>Files Sharding</name>
 	<summary>Distribute users across a cluster of Nextcloud silos</summary>
 	<description>Manages a master + silo architecture: the master authenticates users and redirects them to their home silo. Each silo runs a full Nextcloud installation and can operate independently. Cross-silo sharing uses Nextcloud federation with stable user@master identities.</description>
-	<version>1.0.28</version>
+	<version>1.0.29</version>
 	<licence>agpl</licence>
 	<author mail="fror@dtu.dk">Frederik Orellana, DTU</author>
 	<namespace>FilesSharding</namespace>
@@ -39,6 +39,11 @@
 		<job>OCA\FilesSharding\Job\SyncSiloTrustJob</job>
 		<job>OCA\FilesSharding\Job\ShareAuthorityReconcileJob</job>
 	</background-jobs>
+	<repair-steps>
+		<post-migration>
+			<step>OCA\FilesSharding\Migration\SeedAccountPolicy</step>
+		</post-migration>
+	</repair-steps>
 	<collaboration>
 		<plugins>
 			<plugin type="collaborator-search" share-type="SHARE_TYPE_REMOTE">OCA\FilesSharding\Collaboration\MasterUserSearch</plugin>

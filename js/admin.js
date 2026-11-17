@@ -269,5 +269,58 @@ document.getElementById('fsh-test-btn').addEventListener('click', () => {
   out.style.color = 'var(--color-main-text,inherit)';
 });
 
+// ── Accounts restricted to known addresses ─────────────────────────────────────
+
+let restricted = { users: [], addresses: [], editable: false };
+
+function renderRestricted() {
+  const addr = document.getElementById('fsh-ru-addresses');
+  addr.innerHTML = restricted.addresses.length
+    ? 'Allowed addresses: <code>' + restricted.addresses.map(e).join('</code>, <code>') + '</code> (and the server itself)'
+    : '<strong>No addresses configured (adminips is empty): the restriction is off.</strong>';
+  const ul = document.getElementById('fsh-ru-list');
+  ul.innerHTML = restricted.users.length ? '' : '<li style="color:var(--color-text-maxcontrast,#888)">No accounts restricted.</li>';
+  restricted.users.forEach(u => {
+    const li = document.createElement('li');
+    li.style.cssText = 'display:flex;align-items:center;gap:.5em;margin:.2em 0';
+    li.innerHTML = '<code>' + e(u) + '</code>' + (restricted.editable
+      ? ' <button type="button" class="fsh-ru-remove" data-uid="' + e(u) + '">Remove</button>' : '');
+    ul.appendChild(li);
+  });
+  document.getElementById('fsh-ru-form').style.display = restricted.editable ? 'flex' : 'none';
+  if (!restricted.editable) {
+    ul.insertAdjacentHTML('afterend', '<p class="settings-hint">The list is kept on the master server; edit it there.</p>');
+  }
+}
+
+async function loadRestricted() {
+  const r = await ocsCall('GET', '/restricted-users');
+  if (r.ocs?.meta?.status === 'ok') { restricted = r.ocs.data; renderRestricted(); }
+}
+
+async function saveRestricted(users) {
+  const r = await ocsCall('PUT', '/restricted-users', { users });
+  if (r.ocs?.meta?.status === 'ok') {
+    restricted.users = r.ocs.data.users;
+    renderRestricted();
+    status(r.ocs.data.warning || 'Saved.', !r.ocs.data.warning);
+  } else {
+    status(r.ocs?.data?.message || 'Saving failed', false);
+  }
+}
+
+document.getElementById('fsh-ru-form').addEventListener('submit', ev => {
+  ev.preventDefault();
+  const uid = document.getElementById('fsh-ru-uid').value.trim();
+  if (!uid) { return; }
+  document.getElementById('fsh-ru-uid').value = '';
+  saveRestricted([...restricted.users, uid]);
+});
+document.getElementById('fsh-ru-list').addEventListener('click', ev => {
+  const b = ev.target.closest('.fsh-ru-remove');
+  if (b) { saveRestricted(restricted.users.filter(u => u !== b.dataset.uid)); }
+});
+
+loadRestricted();
 loadServers().then(() => loadUserList(0));
 })();

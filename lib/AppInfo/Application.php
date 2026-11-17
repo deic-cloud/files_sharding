@@ -55,6 +55,7 @@ class Application extends App implements IBootstrap {
 	public function register(IRegistrationContext $context): void {
 		$context->registerEventListener(AddContentSecurityPolicyEvent::class, CspListener::class);
 		$context->registerEventListener(UserLoggedInEvent::class, PostLoginListener::class);
+		$context->registerEventListener(UserLoggedInEvent::class, \OCA\FilesSharding\Listener\SamlLoginListener::class);
 		$context->registerEventListener(UserLoggedInWithCookieEvent::class, PostLoginListener::class);
 		$context->registerEventListener(UserLoggedInEvent::class, SyncExternalSharesListener::class);
 		$context->registerEventListener(UserLoggedInWithCookieEvent::class, SyncExternalSharesListener::class);

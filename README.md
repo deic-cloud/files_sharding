@@ -81,6 +81,14 @@ occ files_sharding:server:list
 occ files_sharding:user:list [--server=1]
 ```
 
+## Account policy (`Service/AccountPolicy.php`)
+
+Cluster-wide facts about accounts, kept on the master; silos ask the master over the internal API (`internal/restricted-users`, `internal/users/{uid}/wayf`, shared-secret auth) and cache the answers.
+
+**Restricted accounts.** Accounts that may only be used from the addresses in the system config `adminips` (comma- or space-separated prefixes; loopback always allowed; empty = off): the admin account, the privileged `cloud` (`vlantrusteduser`) account, test accounts. The list is explicit - edited under *Administration → Sharding* on the master - and applies on every node; membership of the admin group plays no part (it replaced the old admin-group rule in 1.0.29, seeded with the admin group's members plus `vlantrusteduser`). Enforced on web pages and OCS (`AdminIpMiddleware`: logout and back to the front page) and on WebDAV, device passwords included (`DAV/RestrictedAccountPlugin`: 403). Pods acting as `cloud` come from the pod network, which belongs in `adminips`.
+
+**WAYF login.** Whether an account has ever logged in through SAML (WAYF) on the master: recorded at that login (`SamlLoginListener`, user value `files_sharding/wayf_login`), backfilled once from user_saml's accounts. The account backend alone cannot tell, as migrated accounts are ordinary database accounts until their first WAYF login, and silos hold plain copies. Used by user_pods to decide who may start containers.
+
 ## Health check
 
     sudo -u www php occ files_sharding:check [--users] [--quiet-ok]
