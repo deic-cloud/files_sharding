@@ -41,6 +41,16 @@ class RedirectMiddleware extends Middleware {
 	) {
 	}
 
+	/**
+	 * Pages the master serves for every user of the cluster, wherever their home
+	 * is: the OpenID Connect provider (app oidc), the one login for services such
+	 * as a group's Overleaf pod. Its authorize/consent pages must finish on the
+	 * master - the issuer - instead of bouncing the user to their home silo.
+	 */
+	public static function isMasterServedPath(string $uri): bool {
+		return preg_match('#^(/index\.php)?/apps/oidc/#', $uri) === 1;
+	}
+
 	public function beforeController(Controller $controller, string $methodName): void {
 		// PostLoginListener already queued a redirect for this request.
 		if ($this->redirectState->peek() !== null) {
@@ -74,7 +84,8 @@ class RedirectMiddleware extends Middleware {
 		// Skip non-page requests — OCS APIs, DAV, and remote.php never need the redirect UI.
 		$uri = $this->request->getRequestUri();
 		if (
-			str_starts_with($uri, '/ocs/')
+			self::isMasterServedPath($uri)
+			|| str_starts_with($uri, '/ocs/')
 			|| str_starts_with($uri, '/remote.php/')
 			|| $this->request->getHeader('OCS-APIREQUEST') === 'true'
 			// External-collaborator invite/accept pages must run on the node that holds

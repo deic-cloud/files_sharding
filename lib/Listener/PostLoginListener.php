@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OCA\FilesSharding\Listener;
 
 use OCA\FilesSharding\Service\LoginTokenPruner;
+use OCA\FilesSharding\Middleware\RedirectMiddleware;
 use OCA\FilesSharding\Service\RedirectState;
 use OCA\FilesSharding\Service\ShardingService;
 use OCA\FilesSharding\Service\SsoCookie;
@@ -70,6 +71,16 @@ class PostLoginListener implements IEventListener {
 			return;
 		}
 
+		// A login on the way to a page the master serves for everyone (the OpenID
+		// Connect provider) - via the login form's redirect_url, or on such a page
+		// itself (basic auth): stay here.
+		$redirectUrl = (string)($this->request->getParam('redirect_url') ?? '');
+		if (RedirectMiddleware::isMasterServedPath($redirectUrl)
+			|| RedirectMiddleware::isMasterServedPath($this->request->getRequestUri())) {
+			$this->logger->debug("files_sharding: PostLoginListener: {$userId} logs in for a master-served page, no redirect");
+			return;
+		}
+
 		$token = $this->tokenService->issue($userId);
 		// Use the explicit /index.php/ front-controller form, not the clean-URL
 		// form: some silo web servers (Apache with NC's clean-URL rewrite) drop
@@ -82,7 +93,6 @@ class PostLoginListener implements IEventListener {
 		// Thread the original deep link through to the silo exchange endpoint.
 		// NC's login form preserves redirect_url as a POST field, so we read it
 		// here and append it as &return= so exchange() can redirect there.
-		$redirectUrl = (string)($this->request->getParam('redirect_url') ?? '');
 		if ($redirectUrl !== '' && str_starts_with($redirectUrl, '/') && !str_starts_with($redirectUrl, '//')) {
 			$url .= '&return=' . urlencode($redirectUrl);
 		}
