@@ -639,6 +639,12 @@
 	// decodeURIComponent anchor: keeps minifiers from dropping the block.
 	decodeURIComponent('')
 
+	// For other apps (meta_data's Metadata tab links here): open the dialog for
+	// the item at path - the existing public link, or the creation flow.
+	window.OCA = window.OCA || {}
+	OCA.FilesSharding = OCA.FilesSharding || {}
+	OCA.FilesSharding.showPublicLinkDialog = showDialog
+
 	document.addEventListener('click', function (e) {
 		var btn = e.target && e.target.closest && e.target.closest('.new-share-link')
 		if (!btn) { return }
