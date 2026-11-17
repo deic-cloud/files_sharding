@@ -499,6 +499,10 @@
 			lblSpan.appendChild(catA)
 			lbl.appendChild(lblSpan)
 			box.appendChild(lbl)
+			box.appendChild(el('div', {
+				text: t('files_sharding', 'A listed dataset is read-only, also for you. Untick to make changes; a dataset with a DOI stays listed and read-only - publish changes as a new version.'),
+				style: 'font-size:12px;color:var(--color-text-maxcontrast,#666);margin:-6px 0 10px 26px;',
+			}))
 			var metaSlot = el('div', {})
 			box.appendChild(metaSlot)
 			var syncPanel = function () {
@@ -573,7 +577,13 @@
 			}
 			if (listedBox && listedBox.checked !== wasListed) {
 				jobs.push(ocs('POST', '/ocs/v2.php/apps/files_picocms/api/v1/catalog',
-					{ fileId: share.file_source, listed: listedBox.checked }))
+					{ fileId: share.file_source, listed: listedBox.checked })
+					.then(function (r) {
+						var m = r.ocs && r.ocs.meta
+						if (!m || m.statuscode < 200 || m.statuscode >= 300) {
+							throw new Error((r.ocs && r.ocs.data && r.ocs.data.message) || (m && m.message) || t('files_sharding', 'Changing the catalog listing failed'))
+						}
+					}))
 			}
 			if (listedBox && listedBox.checked && metaState.blocks.length > 0) {
 				jobs.push(saveMetaPanel(metaState, share.file_source))
