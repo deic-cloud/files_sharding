@@ -29,6 +29,7 @@ class OidcClients {
 	public function __construct(
 		private IAppManager $appManager,
 		private IURLGenerator $urlGenerator,
+		private ShardingService $sharding,
 		private LoggerInterface $logger,
 	) {
 	}
@@ -39,9 +40,14 @@ class OidcClients {
 			&& class_exists(self::GROUP) && class_exists(self::GROUP_MAPPER);
 	}
 
-	/** The provider's addresses, as a client needs them (the discovery document's). */
+	/**
+	 * The provider's addresses, as a client needs them (the discovery
+	 * document's), at the master's PUBLIC address - the browser goes there,
+	 * and it is the issuer in the provider's tokens. Not the address of the
+	 * current request: callers reach the master on its internal address.
+	 */
 	public function endpoints(): array {
-		$base = rtrim($this->urlGenerator->getAbsoluteURL('/'), '/');
+		$base = $this->sharding->masterUrl() ?: rtrim($this->urlGenerator->getAbsoluteURL('/'), '/');
 		return [
 			'issuer' => $base,
 			'authorization_url' => $base . '/index.php/apps/oidc/authorize',
