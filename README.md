@@ -89,6 +89,10 @@ Cluster-wide facts about accounts, kept on the master; silos ask the master over
 
 **WAYF login.** Whether an account has ever logged in through SAML (WAYF) on the master: recorded at that login (`SamlLoginListener`, user value `files_sharding/wayf_login`), backfilled once from user_saml's accounts. The account backend alone cannot tell, as migrated accounts are ordinary database accounts until their first WAYF login, and silos hold plain copies. Used by user_pods to decide who may start containers.
 
+## Login clients for pods (`Service/OidcClients.php`)
+
+With the OpenID Connect provider app (`oidc`, H2CK) enabled on the master, services can log people in with their ScienceData accounts. `internal/oidc/clients` (POST name, redirect_uri, gid) creates a confidential client with that one redirect URI, restricted to the group `gid` - the provider's own check: only members get a token; `internal/oidc/clients/delete` (POST client_id) removes it. Both shared-secret, master only. The answer carries the client's id and secret and the provider's addresses (issuer = the master). Used by user_pods for group pods (Overleaf). The provider has no API for other apps, so its entity classes are used directly (guarded; checked against oidc 2.6.x). Set `oidc allow_user_settings=no`, or users are asked to consent for each pod. Its authorize/consent pages are master-served (RedirectMiddleware::isMasterServedPath).
+
 ## Health check
 
     sudo -u www php occ files_sharding:check [--users] [--quiet-ok]

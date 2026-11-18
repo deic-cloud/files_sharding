@@ -36,6 +36,9 @@ return [
 		// Account policy, asked by silos (AccountPolicy)
 		['name' => 'internal#restrictedUsers', 'url' => '/internal/restricted-users',   'verb' => 'GET'],
 		['name' => 'internal#userWayf',        'url' => '/internal/users/{uid}/wayf',   'verb' => 'GET'],
+		// Login clients of the OpenID Connect provider, for pods (OidcClients)
+		['name' => 'internal#oidcClientCreate', 'url' => '/internal/oidc/clients',        'verb' => 'POST'],
+		['name' => 'internal#oidcClientDelete', 'url' => '/internal/oidc/clients/delete', 'verb' => 'POST'],
 		['name' => 'internal#issueToken',    'url' => '/internal/token',             'verb' => 'POST'],
 		['name' => 'internal#updateFree',    'url' => '/internal/servers/{id}/free', 'verb' => 'POST'],
 		['name' => 'internal#listServers',        'url' => '/internal/servers',                      'verb' => 'GET'],

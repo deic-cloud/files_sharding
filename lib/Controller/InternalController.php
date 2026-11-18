@@ -46,6 +46,7 @@ class InternalController extends Controller {
 		private LocalUserService                  $localUsers,
 		private LinkLocator                       $links,
 		private \OCA\FilesSharding\Service\AccountPolicy $accountPolicy,
+		private \OCA\FilesSharding\Service\OidcClients $oidcClients,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -64,6 +65,34 @@ class InternalController extends Controller {
 	public function restrictedUsers(): JSONResponse {
 		if ($err = $this->checkSecret()) return $err;
 		return new JSONResponse(['users' => $this->accountPolicy->restrictedUsers()]);
+	}
+
+	/** Master: create a login client restricted to a group (OidcClients). */
+	#[PublicPage]
+	#[NoCSRFRequired]
+	public function oidcClientCreate(string $name = '', string $redirect_uri = '', string $gid = ''): JSONResponse {
+		if ($err = $this->checkSecret()) return $err;
+		if (!$this->shardingService->isMaster()) {
+			return new JSONResponse(['message' => 'Login clients are kept on the master'], 409);
+		}
+		if ($name === '' || $gid === '') {
+			return new JSONResponse(['message' => 'name and gid are required'], 400);
+		}
+		try {
+			return new JSONResponse($this->oidcClients->create($name, $redirect_uri, $gid));
+		} catch (\InvalidArgumentException $e) {
+			return new JSONResponse(['message' => $e->getMessage()], 400);
+		} catch (\Throwable $e) {
+			return new JSONResponse(['message' => $e->getMessage()], 503);
+		}
+	}
+
+	/** Master: delete a login client (OidcClients). */
+	#[PublicPage]
+	#[NoCSRFRequired]
+	public function oidcClientDelete(string $client_id = ''): JSONResponse {
+		if ($err = $this->checkSecret()) return $err;
+		return new JSONResponse(['deleted' => $this->oidcClients->delete($client_id)]);
 	}
 
 	/** Master: has the account ever logged in through WAYF (AccountPolicy)? */
