@@ -271,7 +271,7 @@ class ShareSyncService {
 	 * member sharing a personal folder literally named like the group to its
 	 * owner would match — obscure, and the folder is then simply parked hidden.
 	 */
-	private function isSponsoredSystemShare(string $recipient, string $sharer, string $gid): bool {
+	public function isSponsoredSystemShare(string $recipient, string $sharer, string $gid): bool {
 		if ($gid === '' || $sharer === '' || $sharer === $recipient) {
 			return false;
 		}

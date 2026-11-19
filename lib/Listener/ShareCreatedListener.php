@@ -71,18 +71,25 @@ class ShareCreatedListener implements IEventListener {
 		}
 
 		try {
+			// A member's grant folder shared with the group owner (user_group_admin's
+			// sponsored-folder system share): plumbing, not a person sharing
+			// something - no notice, like its federated flavour (ShareSyncService).
+			// Core's accept/decline notice is still dismissed below.
+			$sponsored  = (bool)preg_match('#^/[^/]+/files/\.uga_grants/[^/]+$#', $share->getNode()->getPath());
 			$sharerUid  = $share->getSharedBy() ?: $share->getShareOwner();
 			$sharerUser = $this->userManager->get($sharerUid);
 			$sharerName = $sharerUser !== null ? $sharerUser->getDisplayName() : $sharerUid;
 			$name       = $share->getNode()->getName();
 
-			$notification = $this->notificationManager->createNotification();
-			$notification->setApp('files_sharding')
-				->setUser($recipient)
-				->setDateTime(new \DateTime())
-				->setObject('local_share', (string)$share->getId())
-				->setSubject('share_received', [$sharerName, $name]);
-			$this->notificationManager->notify($notification);
+			if (!$sponsored) {
+				$notification = $this->notificationManager->createNotification();
+				$notification->setApp('files_sharding')
+					->setUser($recipient)
+					->setDateTime(new \DateTime())
+					->setObject('local_share', (string)$share->getId())
+					->setSubject('share_received', [$sharerName, $name]);
+				$this->notificationManager->notify($notification);
+			}
 
 			// Suppress core's "incoming_user_share" notification (moot Accept/Reject
 			// actions on an auto-accepted share) so the recipient sees only our clean

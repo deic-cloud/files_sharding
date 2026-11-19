@@ -6,6 +6,7 @@ namespace OCA\FilesSharding\Middleware;
 
 use OCA\CloudFederationAPI\Controller\RequestHandlerController;
 use OCA\FilesSharding\Service\InterServerClient;
+use OCA\FilesSharding\Service\ShareSyncService;
 use OCA\FilesSharding\Service\ShardingService;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http;
@@ -30,6 +31,7 @@ class OcmShareReceivedMiddleware extends Middleware {
 	public function __construct(
 		private ShardingService $shardingService,
 		private InterServerClient $client,
+		private ShareSyncService $shareSync,
 		private INotificationManager $notificationManager,
 		private IDBConnection $db,
 		private IRequest $request,
@@ -122,11 +124,9 @@ class OcmShareReceivedMiddleware extends Middleware {
 		$this->collapseDuplicateExternalShares($userId);
 
 		$server = $this->shardingService->getUserServer($userId);
-		if ($server === null) {
-			return $response; // no silo assignment on record — leave as-is
-		}
-		if ($this->shardingService->isSelf($server)) {
-			// Recipient lives on THIS (master) node. Core auto-accepts the trusted
+		if ($server === null || $this->shardingService->isSelf($server)) {
+			// Recipient lives on THIS (master) node - assigned to it, or to no silo
+			// (a master not registered as a server of its own). Core auto-accepts the trusted
 			// share silently — no notification — whereas silo recipients get our clean
 			// "X shared Y with you" via ShareSyncService. Post the same notice here so
 			// master-resident recipients have parity. (No cross-node push needed.)
@@ -227,7 +227,7 @@ class OcmShareReceivedMiddleware extends Middleware {
 	private function notifyMasterResidentRecipient(string $userId): void {
 		try {
 			$qb = $this->db->getQueryBuilder();
-			$qb->select('id', 'owner', 'name')
+			$qb->select('id', 'owner', 'name', 'remote')
 			   ->from('share_external')
 			   ->where($qb->expr()->eq('user', $qb->createNamedParameter($userId)))
 			   ->orderBy('id', 'DESC')
@@ -238,12 +238,28 @@ class OcmShareReceivedMiddleware extends Middleware {
 			if ($row === false) {
 				return;
 			}
+			$name = trim((string)$row['name'], '/');
+			if ($this->shardingService->isClusterServer((string)$row['remote'])
+				&& $this->shareSync->isSponsoredSystemShare($userId, (string)$row['owner'], $name)) {
+				// A member's grant folder shared with the group owner: park it at the
+				// hidden sponsored target (where the owner's "Sponsored folders" view
+				// looks it up; never in All files) and post no notice - as
+				// ShareSyncService does for owners on a silo.
+				$mountpoint = '/.uga_sponsored~' . $name . '~' . (string)$row['owner'];
+				$up = $this->db->getQueryBuilder();
+				$up->update('share_external')
+					->set('mountpoint', $up->createNamedParameter($mountpoint))
+					->set('mountpoint_hash', $up->createNamedParameter(md5($mountpoint)))
+					->where($up->expr()->eq('id', $up->createNamedParameter((int)$row['id'], \OCP\DB\QueryBuilder\IQueryBuilder::PARAM_INT)))
+					->executeStatement();
+				return;
+			}
 			$notification = $this->notificationManager->createNotification();
 			$notification->setApp('files_sharding')
 				->setUser($userId)
 				->setDateTime(new \DateTime())
 				->setObject('remote_share', (string)$row['id'])
-				->setSubject('share_received', [(string)$row['owner'], trim((string)$row['name'], '/')]);
+				->setSubject('share_received', [(string)$row['owner'], $name]);
 			$this->notificationManager->notify($notification);
 		} catch (\Throwable $e) {
 			$this->logger->warning('files_sharding: OcmShareReceivedMiddleware: could not notify master-resident ' . $userId . ': ' . $e->getMessage());
