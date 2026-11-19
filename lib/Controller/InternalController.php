@@ -75,8 +75,8 @@ class InternalController extends Controller {
 		if (!$this->shardingService->isMaster()) {
 			return new JSONResponse(['message' => 'Login clients are kept on the master'], 409);
 		}
-		if ($name === '' || $gid === '') {
-			return new JSONResponse(['message' => 'name and gid are required'], 400);
+		if ($name === '') {
+			return new JSONResponse(['message' => 'name is required'], 400);
 		}
 		try {
 			return new JSONResponse($this->oidcClients->create($name, $redirect_uri, $gid));

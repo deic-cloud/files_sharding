@@ -59,8 +59,9 @@ class OidcClients {
 
 	/**
 	 * Create a client; returns client_id and client_secret plus the endpoints.
-	 * $gid: only members of this group may log in ('' = anyone - not used by
-	 * user_pods, which restricts every client it creates).
+	 * $gid: only members of this group may log in. '' = any account: user_pods
+	 * uses that for a pod started just for its owner, where the application in
+	 * the pod admits only the owner (the provider can only restrict to groups).
 	 */
 	public function create(string $name, string $redirectUri, string $gid): array {
 		if (!$this->available()) {
