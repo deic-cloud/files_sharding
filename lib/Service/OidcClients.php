@@ -59,11 +59,12 @@ class OidcClients {
 
 	/**
 	 * Create a client; returns client_id and client_secret plus the endpoints.
-	 * $gid: only members of this group may log in. '' = any account: user_pods
-	 * uses that for a pod started just for its owner, where the application in
-	 * the pod admits only the owner (the provider can only restrict to groups).
+	 * $gids: only members of these groups may log in (a member of any of them).
+	 * None = any account: user_pods uses that for a pod started just for its
+	 * owner, where the application in the pod admits only the owner (the
+	 * provider can only restrict to groups). @param string[] $gids
 	 */
-	public function create(string $name, string $redirectUri, string $gid): array {
+	public function create(string $name, string $redirectUri, array $gids): array {
 		if (!$this->available()) {
 			throw new \RuntimeException('The OpenID Connect provider (app oidc) is not enabled on the master');
 		}
@@ -73,14 +74,15 @@ class OidcClients {
 		$clientClass = self::CLIENT;
 		$client = new $clientClass($name, [$redirectUri], 'RS256', 'confidential', 'code', 'opaque', 'openid profile email groups', '');
 		$client = Server::get(self::CLIENT_MAPPER)->insert($client);
-		if ($gid !== '') {
+		$gids = array_values(array_unique(array_filter(array_map('strval', $gids), static fn ($g) => $g !== '')));
+		foreach ($gids as $gid) {
 			$groupClass = self::GROUP;
 			$group = new $groupClass();
 			$group->setClientId($client->getId());
 			$group->setGroupId($gid);
 			Server::get(self::GROUP_MAPPER)->insert($group);
 		}
-		$this->logger->info("files_sharding: OIDC client '$name' created for group '$gid'", ['app' => 'files_sharding']);
+		$this->logger->info("files_sharding: OIDC client '$name' created for " . ($gids === [] ? 'any account' : 'groups ' . implode(', ', $gids)), ['app' => 'files_sharding']);
 		return [
 			'client_id' => $client->getClientIdentifier(),
 			'client_secret' => $client->getSecret(),

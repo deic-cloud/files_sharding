@@ -70,7 +70,7 @@ class InternalController extends Controller {
 	/** Master: create a login client restricted to a group (OidcClients). */
 	#[PublicPage]
 	#[NoCSRFRequired]
-	public function oidcClientCreate(string $name = '', string $redirect_uri = '', string $gid = ''): JSONResponse {
+	public function oidcClientCreate(string $name = '', string $redirect_uri = '', string $gid = '', array $gids = []): JSONResponse {
 		if ($err = $this->checkSecret()) return $err;
 		if (!$this->shardingService->isMaster()) {
 			return new JSONResponse(['message' => 'Login clients are kept on the master'], 409);
@@ -79,7 +79,8 @@ class InternalController extends Controller {
 			return new JSONResponse(['message' => 'name is required'], 400);
 		}
 		try {
-			return new JSONResponse($this->oidcClients->create($name, $redirect_uri, $gid));
+			// gids: the groups whose members may log in (none = any account); gid: one (older callers)
+			return new JSONResponse($this->oidcClients->create($name, $redirect_uri, $gids !== [] ? $gids : ($gid === '' ? [] : [$gid])));
 		} catch (\InvalidArgumentException $e) {
 			return new JSONResponse(['message' => $e->getMessage()], 400);
 		} catch (\Throwable $e) {
